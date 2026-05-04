@@ -1,4 +1,4 @@
-﻿![girl-agent banner](assets/final.png)
+﻿![girl-agent banner](https://girl-agent.com/og-image.png)
 
 [website]: https://girl-agent.com
 [docs]: https://docs.girl-agent.com
