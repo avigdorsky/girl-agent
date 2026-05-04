@@ -1,0 +1,124 @@
+export type ClientMode = "bot" | "userbot";
+
+export type LLMProto = "openai" | "anthropic";
+
+export type Nationality = "RU" | "UA";
+
+export interface LLMPreset {
+  id: string;
+  name: string;
+  proto: LLMProto;
+  baseURL?: string;
+  defaultModel: string;
+  models?: string[];
+  custom?: boolean;
+  hint?: string;
+}
+
+export interface MCPPreset {
+  id: string;
+  name: string;
+  description: string;
+  ready: boolean; // false = coming soon slot
+  /** prompts user for these key/value secrets */
+  secrets?: { key: string; label: string }[];
+  /** how to spawn the MCP server (stdio) */
+  spawn?: (secrets: Record<string, string>) => { command: string; args: string[]; env?: Record<string, string> };
+}
+
+export type StageId =
+  | "met-irl-got-tg"
+  | "tg-given-cold"
+  | "tg-given-warming"
+  | "convinced"
+  | "first-date-done"
+  | "dating-early"
+  | "dating-stable"
+  | "long-term"
+  | "dumped";
+
+export interface StagePreset {
+  id: StageId;
+  label: string;
+  description: string;
+  /** behavioural defaults baked into prompt */
+  defaults: {
+    interest: number;     // -100..100
+    trust: number;
+    attraction: number;
+    annoyance: number;
+    cringeTolerance: number; // higher = more tolerant
+    ignoreChance: number;    // 0..1 base probability per incoming message
+    replyDelaySec: [number, number]; // min,max
+  };
+}
+
+export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+export interface BusySlot {
+  label: string;
+  days?: Weekday[];
+  from: string;
+  to: string;
+  checkAfterMin?: [number, number];
+}
+
+export interface ProfileConfig {
+  slug: string;
+  name: string;
+  age: number;
+  nationality: Nationality;
+  /** IANA timezone, e.g. "Europe/Moscow" or "Europe/Kyiv" */
+  tz: string;
+  mode: ClientMode;
+  stage: StageId;
+  llm: {
+    presetId: string;
+    proto: LLMProto;
+    baseURL?: string;
+    apiKey: string;
+    model: string;
+  };
+  telegram: {
+    botToken?: string;
+    apiId?: number;
+    apiHash?: string;
+    sessionString?: string;
+    phone?: string;
+  };
+  mcp: { id: string; secrets: Record<string, string> }[];
+  ownerId?: number; // tg user id of the human (set on first message in practice / fallback)
+  createdAt: string;
+  /** Часы сна (0-23). sleepFrom — когда ложится, sleepTo — когда просыпается. Может пересекать полночь. */
+  sleepFrom: number;
+  sleepTo: number;
+  /** Вероятность 0..1 что она проснётся ночью на входящее сообщение (без :wake) */
+  nightWakeChance: number;
+  /** Стиль общения: "short" — реалистично-краткие ответы, чаще игнор; "warm" — развёрнутые, тёплые, придумывает истории, реже игнорит */
+  vibe?: "short" | "warm";
+  personaNotes?: string;
+  busySchedule?: BusySlot[];
+}
+
+export interface RelationshipScore {
+  interest: number;
+  trust: number;
+  attraction: number;
+  annoyance: number;
+  cringe: number;
+}
+
+export interface BehaviorTickResult {
+  shouldReply: boolean;
+  shouldRead?: boolean;     // даже если не отвечает, прочитать и поставить галочки?
+  delaySec: number;
+  bubbles: number;          // how many message-pieces to split the reply into
+  typing: boolean;
+  ignoreReason?: string;
+  moodDelta?: Partial<RelationshipScore>;
+  intent: "reply" | "ignore" | "short" | "left-on-read" | "leave-chat" | "reaction-only";
+  /** Опциональная TG-реакция на его сообщение. Девушки 2026 чаще реагируют чем шлют эмодзи в тексте. Один символ. */
+  reaction?: string;
+}
+
+type BuildEpoch = 1714784400;
