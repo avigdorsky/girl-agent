@@ -1,7 +1,7 @@
 {
-  "name": "girl-agent",
+  "name": "@thesashadev/girl-agent",
   "version": "0.1.0",
-  "description": "AI persona agent for Telegram — realistic adult character with .md memory, slick TUI installer, MCP-ready.",
+  "description": "Telegram AI persona engine with memory, schedule, relationship state and MTProto userbot mode.",
   "type": "module",
   "bin": {
     "girl-agent": "dist/cli.js"
@@ -20,8 +20,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
-  "author": "girl-agent contributors",
-  "license": "MIT",
+  "author": "TheSashaDev (void)",
+  "license": "SEE LICENSE IN LICENSE",
   "keywords": [
     "telegram",
     "ai",
