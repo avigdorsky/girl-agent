@@ -9,6 +9,7 @@ import {
   readAgenda, writeAgenda, readRecentSessionTurns, readMd, sessionDate
 } from "../storage/md.js";
 import { findStage } from "../presets/stages.js";
+import { communicationProfileLabel, normalizeCommunicationProfile } from "../presets/communication.js";
 import { startMcpServers, type McpHandle } from "../mcp/client.js";
 import { extractAgendaUpdates, dueAgendaItems, markAgendaFired, decideAfterProactiveResponse, ensureAutonomousAgenda, rescheduleAgenda, reconcileAgendaAfterConflict } from "./agenda.js";
 import { computePresenceProfile, computePresenceState, type PresenceProfile } from "./presence.js";
@@ -73,7 +74,7 @@ export class Runtime extends EventEmitter {
     this.emit("event", { type: "info", text: `MCP started: ${this.mcps.map(m => m.id).join(", ") || "none"}` } as RuntimeEvent);
     this.tg = await makeTgAdapter(this.cfg);
     await this.tg.start((m) => this.handleIncoming(m));
-    this.emit("event", { type: "info", text: `Telegram ${this.cfg.mode} запущен. Профиль: ${this.cfg.slug} | presence: ${this.presenceProfile.pattern}` } as RuntimeEvent);
+    this.emit("event", { type: "info", text: `Telegram ${this.cfg.mode} запущен. Профиль: ${this.cfg.slug} | presence: ${this.presenceProfile.pattern} | communication: ${communicationProfileLabel(normalizeCommunicationProfile(this.cfg))}` } as RuntimeEvent);
     this.lastStage = this.cfg.stage;
 
     // Пред-загружаем daily-life (в фоне, не блокируем старт)
@@ -382,8 +383,7 @@ export class Runtime extends EventEmitter {
       this.emit("event", { type: "incoming", text: incomingText, chatId: m.chatId } as RuntimeEvent);
       if (isPrimary) {
         await appendSessionLog(this.cfg.slug, this.cfg.tz, `[${new Date().toISOString()}] он(${m.fromId}): ${incomingText}`);
-      await appendSessionLog(this.cfg.slug, this.cfg.tz, `[${new Date().toISOString()}] он(${m.fromId}): ${incomingText}`);
-    }
+      }
 
     if (m.media?.kind === "sticker" && m.media.fileId && isPrimary) {
       addStickerToLibrary(this.cfg, m.media.fileId, m.media.emoji ?? "", ["received"]).catch(() => {});
@@ -739,11 +739,13 @@ export class Runtime extends EventEmitter {
   async cmdStatus(): Promise<string> {
     const rel = await readRelationship(this.cfg.slug);
     const stage = findStage(this.cfg.stage);
+    const communication = normalizeCommunicationProfile(this.cfg);
     return [
       `имя: ${this.cfg.name}, ${this.cfg.age}`,
       `стадия: ${stage.label} (${this.cfg.stage})`,
       `primary owner: ${this.cfg.ownerId ?? "—"}`,
       `presence: ${this.presenceProfile.pattern}`,
+      `communication: ${communicationProfileLabel(communication)}`,
       `score: ${JSON.stringify(rel.score)}`,
       `mcp: ${this.mcps.map(m => m.id).join(", ") || "—"}`,
       `paused: ${this.paused}`
@@ -850,7 +852,8 @@ export class Runtime extends EventEmitter {
     const rel = await readRelationship(this.cfg.slug);
     const stage = findStage(this.cfg.stage);
     const conflict = await readConflict(this.cfg.slug);
-    const key = chatId ?? "default";
+    const communication = normalizeCommunicationProfile(this.cfg);
+    const key = chatId ?? this.histKey(this.cfg.ownerId ?? "default");
     const presence = computePresenceState(
       this.cfg,
       this.presenceProfile,
@@ -864,6 +867,8 @@ export class Runtime extends EventEmitter {
       `presence: ${this.presenceProfile.pattern}`,
       `  online: ${presence.online}, asleep: ${presence.asleep}, nightAwake: ${presence.nightAwake}`,
       `  localHour: ${presence.localHour}, hint: ${presence.hint}`,
+      ``,
+      `communication: ${communicationProfileLabel(communication)}`,
       ``,
       `stage: ${stage.label} (${this.cfg.stage})`,
       `  ignoreChance: ${stage.defaults.ignoreChance}, delay: ${stage.defaults.replyDelaySec[0]}-${stage.defaults.replyDelaySec[1]}s`,

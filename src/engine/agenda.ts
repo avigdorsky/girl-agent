@@ -2,6 +2,7 @@ import type { ProfileConfig, Weekday } from "../types.js";
 import type { LLMClient } from "../llm/index.js";
 import { readAgenda, writeAgenda, readMd, writeMd, readRelationship, type AgendaItem } from "../storage/md.js";
 import { findStage } from "../presets/stages.js";
+import { communicationDecisionState, normalizeCommunicationProfile } from "../presets/communication.js";
 import type { DailyLife } from "./daily-life.js";
 import type { ConflictState } from "./conflict.js";
 
@@ -113,12 +114,17 @@ function localParts(tz: string, when: Date): { hour: number; minute: number; wee
   }
 }
 
-function maxAutonomousItems(stage: string): number {
-  if (stage === "tg-given-cold" || stage === "met-irl-got-tg") return 0;
-  if (stage === "tg-given-warming") return 1;
-  if (stage === "convinced" || stage === "first-date-done") return 2;
-  if (stage === "dating-early") return 3;
-  return 4;
+function maxAutonomousItems(stage: string, initiative: "low" | "medium" | "high"): number {
+  let base =
+    stage === "tg-given-cold" ? 0 :
+    stage === "met-irl-got-tg" ? 1 :
+    stage === "tg-given-warming" ? 1 :
+    stage === "convinced" || stage === "first-date-done" ? 2 :
+    stage === "dating-early" ? 3 :
+    4;
+  if (initiative === "low") base = Math.max(0, base - 1);
+  if (initiative === "high") base += stage === "tg-given-cold" ? 0 : 1;
+  return base;
 }
 
 function isDuringSleep(cfg: ProfileConfig, when: Date): boolean {
@@ -237,13 +243,14 @@ export async function extractAgendaUpdates(
   chatId: string | number
 ): Promise<{ created: number; updated: number; cancelled: number }> {
   const stage = findStage(cfg.stage);
+  const communication = normalizeCommunicationProfile(cfg);
   // Агенда не для холодных стадий — экономим LLM-вызовы.
-  if (cfg.stage === "tg-given-cold" || cfg.stage === "met-irl-got-tg") {
+  if (cfg.stage === "tg-given-cold" || (cfg.stage === "met-irl-got-tg" && communication.initiative === "low")) {
     return { created: 0, updated: 0, cancelled: 0 };
   }
 
   const persona = (await readMd(cfg.slug, "persona.md")).slice(0, 800);
-  const stateBlock = `# Стадия: ${stage.label} (${stage.description})\n# persona фрагмент:\n${persona}`;
+  const stateBlock = `# Стадия: ${stage.label} (${stage.description})\n# ${communicationDecisionState(communication)}\n# persona фрагмент:\n${persona}`;
   const histStr = history.slice(-8).map(m => `${m.role === "user" ? "он" : "она"}: ${m.content}`).join("\n");
   const agenda = await readAgenda(cfg.slug);
   const now = new Date().toISOString();
@@ -322,7 +329,8 @@ export async function ensureAutonomousAgenda(
   if (state.includes(`autonomous:${dateKey}`)) return { created: 0 };
 
   const agenda = await readAgenda(cfg.slug);
-  const maxItems = maxAutonomousItems(cfg.stage);
+  const communication = normalizeCommunicationProfile(cfg);
+  const maxItems = maxAutonomousItems(cfg.stage, communication.initiative);
   if (maxItems <= 0) {
     await writeMd(cfg.slug, statePath, `${state.trim()}\nautonomous:${dateKey} created=0`.trim() + "\n");
     return { created: 0 };
@@ -350,6 +358,7 @@ export async function ensureAutonomousAgenda(
     `# Стадия: ${stage.label} (${cfg.stage})`,
     `# Описание стадии: ${stage.description}`,
     `# Score: ${JSON.stringify(rel.score)}`,
+    `# ${communicationDecisionState(communication)}`,
     `# persona:\n${persona}`,
     `# speech:\n${speech}`
   ].join("\n\n");

@@ -84,12 +84,13 @@ export function Dashboard({ runtime }: { runtime: Runtime }) {
           break;
         }
         case "log": {
-          const today = sessionDate(runtime.cfg.tz);
-          const p = await readSessionLog(runtime.cfg.slug, today);
-          append(p.slice(-3000));
+          const day = /^\d{4}-\d{2}-\d{2}$/.test(rest[0] ?? "") ? rest[0]! : sessionDate(runtime.cfg.tz);
+          const limit = Number(rest.find(x => /^\d+$/.test(x)) ?? 3000);
+          const p = await readSessionLog(runtime.cfg.slug, day);
+          append(p.trim() ? p.slice(-Math.max(500, Math.min(limit, 20000))) : `(log/${day}.md пуст или ещё не создан)`);
           break;
         }
-        case "help": append(":status :why :amnesia <мин> [chatId] :reset :stage <id> :wake [chatId] :debug [chatId] :pause :resume :cringe :relationship :persona :log :block [chatId] :unblock [chatId] :read [chatId] :clear-chat [chatId] [--revoke] :report-spam [chatId] :delete-last [chatId] [--local] :edit-last <text> :sticker [chatId] :quit"); break;
+        case "help": append(":status :why :amnesia <мин> [chatId] :reset :stage <id> :wake [chatId] :debug [chatId] :pause :resume :cringe :relationship :persona :log [YYYY-MM-DD] [chars] :block [chatId] :unblock [chatId] :read [chatId] :clear-chat [chatId] [--revoke] :report-spam [chatId] :delete-last [chatId] [--local] :edit-last <text> :sticker [chatId] :quit"); break;
         case "quit": case "exit": await runtime.stop(); exit(); break;
         default: append(`неизвестная команда: ${head}`);
       }
@@ -129,7 +130,7 @@ export function Dashboard({ runtime }: { runtime: Runtime }) {
           if (line) await execute(line);
         }} />
       </Box>
-      <Text dimColor>команды: :status :why :amnesia &lt;мин&gt; :reset :stage &lt;id&gt; :pause :resume :cringe :persona :log :block :unblock :read :clear-chat :delete-last :edit-last :sticker :quit</Text>
+      <Text dimColor>команды: :status :why :amnesia &lt;мин&gt; :reset :stage &lt;id&gt; :pause :resume :cringe :persona :log [day] :block :unblock :read :clear-chat :delete-last :edit-last :sticker :quit</Text>
     </Box>
   );
 }

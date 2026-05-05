@@ -8,7 +8,8 @@ import BigText from "ink-big-text";
 import { LLM_PRESETS, findPreset } from "../presets/llm.js";
 import { MCP_PRESETS } from "../presets/mcp.js";
 import { STAGE_PRESETS } from "../presets/stages.js";
-import type { ProfileConfig, ClientMode, LLMProto, StageId, Nationality, BusySlot } from "../types.js";
+import { COMMUNICATION_PRESETS, communicationProfileLabel, deriveLegacyVibe, findCommunicationPreset, normalizeCommunicationProfile } from "../presets/communication.js";
+import type { ProfileConfig, ClientMode, LLMProto, StageId, Nationality, BusySlot, CommunicationProfile } from "../types.js";
 import { slugify, writeConfig } from "../storage/md.js";
 import { makeLLM } from "../llm/index.js";
 import { generatePersonaPack } from "../engine/persona-gen.js";
@@ -22,8 +23,9 @@ type Step =
   | "splash" | "mode" | "tg-bot-token" | "tg-userbot-api" | "tg-userbot-phone" | "tg-userbot-code" | "tg-userbot-pass"
   | "api-preset" | "api-base" | "api-model" | "api-key"
   | "nationality" | "name-mode" | "name" | "name-tournament" | "name-tournament-knockout"
-  | "age" | "sleep" | "sleep-custom-from" | "sleep-custom-to" | "sleep-custom-chance" | "vibe" | "tz" | "persona-notes"
-  | "generating" | "stage" | "mcp-pick" | "mcp-secret" | "practice" | "saving" | "done";
+  | "age" | "sleep" | "sleep-custom-from" | "sleep-custom-to" | "sleep-custom-chance" | "vibe"
+  | "comm-notifications" | "comm-style" | "comm-initiative" | "comm-life"
+  | "tz" | "persona-notes" | "generating" | "stage" | "mcp-pick" | "mcp-secret" | "saving" | "done";
 
 const TOURNAMENT_ROUNDS = 20;
 
@@ -40,6 +42,13 @@ const Bar: React.FC<{ step: number; total: number }> = ({ step, total }) => {
   ).join("");
   return <Text color="magenta">[{blocks}] шаг {step + 1}/{total}</Text>;
 };
+
+function personaNotesForGeneration(notes: string, communication: CommunicationProfile): string {
+  return [
+    notes.trim(),
+    `Тон общения: ${communicationProfileLabel(communication)}. Учти это при speech.md и communication.md.`
+  ].filter(Boolean).join("\n\n");
+}
 
 export function Wizard({ initial, onDone }: {
   initial?: Partial<ProfileConfig>;
@@ -84,7 +93,7 @@ export function Wizard({ initial, onDone }: {
   const [sleepFromStr, setSleepFromStr] = useState("23");
   const [sleepToStr, setSleepToStr] = useState("8");
   const [nightWakeStr, setNightWakeStr] = useState("5");
-  const [vibe, setVibe] = useState<"short" | "warm">("short");
+  const [communicationProfile, setCommunicationProfile] = useState<CommunicationProfile>(normalizeCommunicationProfile(initial));
 
   const [stage, setStage] = useState<StageId>(initial?.stage ?? "tg-given-cold");
 
@@ -174,7 +183,7 @@ export function Wizard({ initial, onDone }: {
         }
       }, 100);
 
-      const generated = await generatePersonaPack(llm, slug, name.trim(), Number(ageStr), nationality, personaNotes);
+      const generated = await generatePersonaPack(llm, slug, name.trim(), Number(ageStr), nationality, personaNotesForGeneration(personaNotes, communicationProfile));
       if (timer) clearInterval(timer);
       setGenPercent(100);
       setGenStatus("готово!");
@@ -689,16 +698,110 @@ export function Wizard({ initial, onDone }: {
   if (step === "vibe") {
     return (
       <Box flexDirection="column" padding={1}>
-        <Header sub="как она будет общаться?" />
+        <Header sub="тонкая настройка общения" />
         <Bar step={7} total={12} />
         <Box marginTop={1}>
           <SelectInput
             items={[
-              { label: "💬 Короткий — реалистично-минималистичный стиль. \"норм\", \"та ниче\", чаще игнорит, как настоящая девушка в тг", value: "short" },
-              { label: "🌸 Тёплый — развёрнутые ответы, придумывает истории про свой день, реже игнорит, охотнее общается", value: "warm" },
+              ...COMMUNICATION_PRESETS.map(p => ({ label: `${p.label} — ${p.description}`, value: p.id })),
+              { label: "✎ Настроить вручную", value: "__custom__" }
             ]}
             onSelect={(it) => {
-              setVibe(it.value as "short" | "warm");
+              if (it.value === "__custom__") {
+                setStep("comm-notifications");
+                return;
+              }
+              const preset = findCommunicationPreset(String(it.value));
+              if (preset) setCommunicationProfile(preset.profile);
+              setStep("tz");
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (step === "comm-notifications") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Header sub="уведомления от тебя" />
+        <Bar step={7} total={12} />
+        <Box marginTop={1}>
+          <SelectInput
+            items={[
+              { label: "� muted — может видеть позже", value: "muted" },
+              { label: "🔔 normal — обычные уведомления", value: "normal" },
+              { label: "💖 priority — твои сообщения важные, чаще быстро отвечает", value: "priority" }
+            ]}
+            onSelect={(it) => {
+              setCommunicationProfile(p => ({ ...p, notifications: it.value as CommunicationProfile["notifications"] }));
+              setStep("comm-style");
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (step === "comm-style") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Header sub="стиль переписки" />
+        <Bar step={7} total={12} />
+        <Box marginTop={1}>
+          <SelectInput
+            items={[
+              { label: "one-liners — коротко, 1 слово/фраза", value: "one-liners" },
+              { label: "balanced — 1-3 пузыря, разный ритм", value: "balanced" },
+              { label: "bursty — пишет серией сообщений подряд", value: "bursty" },
+              { label: "longform — иногда длиннее рассказывает", value: "longform" }
+            ]}
+            onSelect={(it) => {
+              setCommunicationProfile(p => ({ ...p, messageStyle: it.value as CommunicationProfile["messageStyle"] }));
+              setStep("comm-initiative");
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (step === "comm-initiative") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Header sub="инициатива" />
+        <Bar step={7} total={12} />
+        <Box marginTop={1}>
+          <SelectInput
+            items={[
+              { label: "low — первой пишет редко", value: "low" },
+              { label: "medium — иногда пишет сама", value: "medium" },
+              { label: "high — часто сама начинает темы", value: "high" }
+            ]}
+            onSelect={(it) => {
+              setCommunicationProfile(p => ({ ...p, initiative: it.value as CommunicationProfile["initiative"] }));
+              setStep("comm-life");
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (step === "comm-life") {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Header sub="делиться моментами жизни" />
+        <Bar step={7} total={12} />
+        <Box marginTop={1}>
+          <SelectInput
+            items={[
+              { label: "low — почти не рассказывает о себе", value: "low" },
+              { label: "medium — иногда бытовые моменты", value: "medium" },
+              { label: "high — часто пишет что у неё происходит", value: "high" }
+            ]}
+            onSelect={(it) => {
+              setCommunicationProfile(p => ({ ...p, lifeSharing: it.value as CommunicationProfile["lifeSharing"] }));
               setStep("tz");
             }}
           />
@@ -795,7 +898,7 @@ export function Wizard({ initial, onDone }: {
             setMcpQueue(need);
             setMcpSecretIdx(0);
             if (need.length) setStep("mcp-secret");
-            else setStep("practice");
+            else { setStep("saving"); save(); }
           }}
         />
       </Box>
@@ -879,7 +982,8 @@ export function Wizard({ initial, onDone }: {
       sleepFrom: Number(sleepFromStr),
       sleepTo: Number(sleepToStr),
       nightWakeChance: Number(nightWakeStr) / 100,
-      vibe,
+      vibe: deriveLegacyVibe(communicationProfile),
+      communication: communicationProfile,
       personaNotes: personaNotes.trim() || undefined,
       busySchedule
     };

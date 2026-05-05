@@ -1,6 +1,7 @@
 import type { LLMClient } from "../llm/index.js";
-import type { BehaviorTickResult, ProfileConfig } from "../types.js";
+import type { BehaviorTickResult, CommunicationProfile, ProfileConfig } from "../types.js";
 import { findStage } from "../presets/stages.js";
+import { communicationDecisionState, normalizeCommunicationProfile } from "../presets/communication.js";
 import { readRelationship } from "../storage/md.js";
 import type { PresenceState } from "./presence.js";
 import type { ConflictState } from "./conflict.js";
@@ -82,6 +83,9 @@ ${reactionsHint}
 - Если она СПИТ — ignore или left-on-read (shouldRead=false). Если энергично написал ночью — может разозлить (annoyance +).
 - Если она занята по presence — не отвечай сразу; если сообщение в целом заслуживает ответа, ставь shouldReply=true и большой delaySec, runtime дотянет его до времени когда она освободится и проверит Telegram.
 - Если она офлайн (не спит) — допустимо высокое delaySec (300-2400с) И normal reply, либо ignore с shouldRead=true (она зашла, прочитала, но ответит позже).
+- Если communication.notifications=priority — она чаще видит именно его уведомления; без сна/конфликта не превращай каждое офлайн-состояние в игнор.
+- Если communication.messageStyle=bursty — bubbles 2..5 нормальны даже на обычный ответ. Если one-liners — bubbles чаще 1.
+- Если communication.lifeSharing=high — уместно чаще выбрать normal reply, где она может поделиться своим моментом из жизни.
 - Если стадия "tg-given-cold" и сообщение скучное/невнятное — высокая вероятность ignore или left-on-read.
 - Если в сообщении кринж/токсик/нарушение boundaries — annoyance растёт, может быть ignore или leave-chat.
 - Если милое/уместное на тёплой стадии — interest и attraction +.
@@ -100,22 +104,24 @@ export async function behaviorTick(
 ): Promise<BehaviorTickResult> {
   const stage = findStage(cfg.stage);
   const rel = await readRelationship(cfg.slug);
-  const state = `stage=${cfg.stage} (${stage.label})\nscore=${JSON.stringify(rel.score)}\nbase_ignore=${stage.defaults.ignoreChance}\nbase_delay=${stage.defaults.replyDelaySec.join("..")}s`;
+  const communication = normalizeCommunicationProfile(cfg);
+  const state = `stage=${cfg.stage} (${stage.label})\nscore=${JSON.stringify(rel.score)}\nbase_ignore=${stage.defaults.ignoreChance}\nbase_delay=${stage.defaults.replyDelaySec.join("..")}s\n${communicationDecisionState(communication)}`;
   const reactionsHint = reactionMenu(cfg.stage, rel.score);
 
   const history = recentHistory.slice(-8)
     .map(m => `${m.role === "user" ? "он" : "она"}: ${m.content}`).join("\n");
 
   if (ctx.activeDialog && !ctx.conflictColdActive) {
+    const bubbles = sampleBubbles(communication, true);
     return {
       shouldReply: true,
       shouldRead: true,
-      delaySec: clamp(cfg.vibe === "warm" ? 5 + Math.random() * 25 : 15 + Math.random() * 75, 3, 120),
-      bubbles: cfg.vibe === "warm" ? 2 : 1,
+      delaySec: clamp(activeDialogDelay(communication), 2, 180),
+      bubbles,
       typing: true,
       ignoreReason: undefined,
       moodDelta: { interest: 1 },
-      intent: cfg.vibe === "warm" ? "reply" : "short"
+      intent: bubbles > 1 || communication.messageStyle !== "one-liners" ? "reply" : "short"
     };
   }
 
@@ -134,10 +140,11 @@ export async function behaviorTick(
   }
 
   // warm vibe — снижает шанс случайного игнора
-  const vibeIgnoreMul = cfg.vibe === "warm" ? 0.4 : 1.0;
+  const ignoreMul = ignoreMultiplier(communication);
 
   // если СПИТ — игнор почти всегда
-  if (ctx.presence?.asleep && !ctx.presence.nightAwake && Math.random() < 0.85 * vibeIgnoreMul) {
+  const sleepIgnoreMul = communication.notifications === "priority" ? 0.8 : communication.notifications === "muted" ? 1 : 0.9;
+  if (ctx.presence?.asleep && !ctx.presence.nightAwake && Math.random() < 0.85 * sleepIgnoreMul) {
     return {
       shouldReply: false,
       shouldRead: false,
@@ -198,25 +205,40 @@ export async function behaviorTick(
       reaction = sanitizeReaction(reaction, cfg.stage, rel.score);
     }
 
+    let intent = parsed.intent || "reply";
+    let shouldReply = !!parsed.shouldReply && intent !== "ignore" && intent !== "left-on-read" && intent !== "reaction-only";
+    let delaySec = parsed.delaySec ?? 30;
+    let bubbles = parsed.bubbles ?? sampleBubbles(communication, false);
+
+    if (!shouldReply && canRecoverReply(cfg.stage, rel.score, ctx) && Math.random() < recoverReplyChance(communication, rel.score)) {
+      shouldReply = true;
+      intent = communication.messageStyle === "one-liners" ? "short" : "reply";
+      delaySec = recoverDelay(communication, ctx);
+      bubbles = sampleBubbles(communication, false);
+    }
+
+    delaySec = adjustDelay(delaySec, communication, ctx);
+    bubbles = normalizeBubbles(bubbles, communication, intent, ctx.activeDialog);
+
     return {
-      shouldReply: !!parsed.shouldReply && parsed.intent !== "ignore" && parsed.intent !== "left-on-read" && parsed.intent !== "reaction-only",
+      shouldReply,
       shouldRead: parsed.shouldRead ?? true,
-      delaySec: clamp(parsed.delaySec ?? 30, 0, 3600),
-      bubbles: clamp(parsed.bubbles ?? 1, 1, 6),
+      delaySec,
+      bubbles,
       typing: parsed.typing ?? true,
       ignoreReason: parsed.ignoreReason || undefined,
       moodDelta: parsed.moodDelta || {},
-      intent: parsed.intent || "reply",
+      intent,
       reaction
     };
   } catch {
-    const ignore = Math.random() < stage.defaults.ignoreChance * vibeIgnoreMul;
+    const ignore = Math.random() < stage.defaults.ignoreChance * ignoreMul;
     const [lo, hi] = stage.defaults.replyDelaySec;
     return {
       shouldReply: !ignore,
       shouldRead: true,
-      delaySec: clamp(lo + Math.random() * (hi - lo), 0, 3600),
-      bubbles: 1,
+      delaySec: adjustDelay(lo + Math.random() * (hi - lo), communication, ctx),
+      bubbles: sampleBubbles(communication, false),
       typing: true,
       moodDelta: {},
       intent: ignore ? "ignore" : "reply"
@@ -237,6 +259,83 @@ function sanitizeReaction(emoji: string, stage: string, score: { attraction: num
     return ["👍", "😐", "🤔"][Math.floor(Math.random() * 3)];
   }
   return emoji;
+}
+
+function ignoreMultiplier(profile: CommunicationProfile): number {
+  let mul = profile.notifications === "priority" ? 0.3 : profile.notifications === "muted" ? 1.15 : 0.75;
+  if (profile.initiative === "high") mul *= 0.75;
+  if (profile.lifeSharing === "high") mul *= 0.85;
+  if (profile.messageStyle === "one-liners" && profile.initiative === "low") mul *= 1.15;
+  return mul;
+}
+
+function activeDialogDelay(profile: CommunicationProfile): number {
+  const base = profile.notifications === "priority" ? 3 : profile.notifications === "muted" ? 18 : 8;
+  const spread = profile.messageStyle === "one-liners" ? 55 : profile.messageStyle === "bursty" ? 25 : 40;
+  return base + Math.random() * spread;
+}
+
+function sampleBubbles(profile: CommunicationProfile, activeDialog: boolean): number {
+  const r = Math.random();
+  if (profile.messageStyle === "one-liners") return activeDialog && r > 0.82 ? 2 : 1;
+  if (profile.messageStyle === "bursty") {
+    if (activeDialog) return 2 + Math.floor(Math.random() * 4);
+    return r < 0.18 ? 1 : 2 + Math.floor(Math.random() * 3);
+  }
+  if (profile.messageStyle === "longform") {
+    if (activeDialog) return r < 0.2 ? 1 : 2 + Math.floor(Math.random() * 2);
+    return r < 0.45 ? 1 : 2;
+  }
+  if (activeDialog) return r < 0.3 ? 1 : r < 0.82 ? 2 : 3;
+  return r < 0.55 ? 1 : r < 0.9 ? 2 : 3;
+}
+
+function canRecoverReply(stage: string, score: { interest: number; attraction: number; annoyance: number }, ctx: BehaviorContext): boolean {
+  if (stage === "dumped") return false;
+  if (ctx.conflictColdActive) return false;
+  if (ctx.presence?.asleep && !ctx.presence.nightAwake) return false;
+  if (score.annoyance > 65) return false;
+  if (stage === "tg-given-cold" && score.interest < 20 && score.attraction < 20) return false;
+  return true;
+}
+
+function recoverReplyChance(profile: CommunicationProfile, score: { interest: number; attraction: number; annoyance: number }): number {
+  let chance = profile.notifications === "priority" ? 0.72 : profile.notifications === "muted" ? 0.16 : 0.38;
+  if (profile.initiative === "high") chance += 0.16;
+  if (profile.initiative === "low") chance -= 0.1;
+  if (profile.lifeSharing === "high") chance += 0.08;
+  if (score.interest > 40) chance += 0.12;
+  if (score.attraction > 50) chance += 0.1;
+  if (score.annoyance > 30) chance -= 0.2;
+  return clamp(chance, 0.03, 0.95);
+}
+
+function recoverDelay(profile: CommunicationProfile, ctx: BehaviorContext): number {
+  if (ctx.activeDialog) return activeDialogDelay(profile);
+  if (ctx.presence?.online) return profile.notifications === "priority" ? 5 + Math.random() * 55 : 15 + Math.random() * 120;
+  if (ctx.presence?.notificationSeen) return profile.notifications === "priority" ? 30 + Math.random() * 210 : 120 + Math.random() * 600;
+  return profile.notifications === "priority" ? 180 + Math.random() * 600 : 300 + Math.random() * 1500;
+}
+
+function adjustDelay(delaySec: number, profile: CommunicationProfile, ctx: BehaviorContext): number {
+  let delay = Number(delaySec) || 30;
+  if (profile.notifications === "priority") delay *= 0.45;
+  else if (profile.notifications === "normal") delay *= 0.8;
+  else delay *= 1.15;
+  if (profile.initiative === "high") delay *= 0.85;
+  if (ctx.activeDialog) delay = Math.min(delay, activeDialogDelay(profile) + 20);
+  if (ctx.presence?.online) delay = Math.min(delay, profile.notifications === "priority" ? 120 : 240);
+  if (ctx.presence?.notificationSeen) delay = Math.min(delay, profile.notifications === "priority" ? 300 : 900);
+  return clamp(delay, 0, 3600);
+}
+
+function normalizeBubbles(value: number, profile: CommunicationProfile, intent: string, activeDialog?: boolean): number {
+  if (intent === "short" || intent === "ignore" || intent === "left-on-read" || intent === "reaction-only") return 1;
+  const sampled = Number.isFinite(Number(value)) ? Number(value) : sampleBubbles(profile, !!activeDialog);
+  if (profile.messageStyle === "one-liners") return clamp(sampled, 1, activeDialog ? 2 : 1);
+  if (profile.messageStyle === "bursty") return clamp(sampled, 1, 6);
+  if (profile.messageStyle === "longform") return clamp(sampled, 1, 4);
+  return clamp(sampled, 1, 3);
 }
 
 function clamp(n: number, a: number, b: number): number {

@@ -3,6 +3,7 @@
 
 import type { BusySlot, ProfileConfig, Weekday } from "../types.js";
 import type { ConflictState } from "./conflict.js";
+import { normalizeCommunicationProfile } from "../presets/communication.js";
 
 export type PresencePattern =
   | "phone-attached"   // телефон в руке почти всегда. отвечает быстро. бывает сон/работа
@@ -30,36 +31,64 @@ export interface PresenceProfile {
 export function computePresenceProfile(cfg: ProfileConfig): PresenceProfile {
   const seed = [...cfg.name].reduce((a, c) => a + c.charCodeAt(0), 0) + cfg.age;
   const r = (n: number) => ((seed * 9301 + n * 49297) % 233280) / 233280;
+  const communication = normalizeCommunicationProfile(cfg);
 
   const patterns: PresencePattern[] = [
     "phone-attached", "burst-checker", "rare-checker", "evening-only", "phone-attached-night"
   ];
-  const pattern = patterns[Math.floor(r(1) * patterns.length)] ?? "burst-checker";
+  let pattern = patterns[Math.floor(r(1) * patterns.length)] ?? "burst-checker";
+  if (communication.notifications === "priority") {
+    pattern = communication.messageStyle === "bursty" || pattern === "rare-checker" || pattern === "evening-only" ? "phone-attached" : pattern;
+  } else if (communication.notifications === "muted") {
+    pattern = pattern === "phone-attached" ? "burst-checker" : pattern === "phone-attached-night" ? "evening-only" : pattern;
+  }
 
   const sleepFrom = cfg.sleepFrom ?? 23;
   const sleepTo = cfg.sleepTo ?? 8;
-  const nightWakeChance = cfg.nightWakeChance ?? 0.05;
+  const baseNightWakeChance = cfg.nightWakeChance ?? 0.05;
+  const nightWakeChance = communication.notifications === "priority"
+    ? Math.min(0.35, baseNightWakeChance + 0.05)
+    : communication.notifications === "muted"
+      ? Math.max(0, baseNightWakeChance * 0.4)
+      : baseNightWakeChance;
 
-  const checkEveryMin =
+  let checkEveryMin =
     pattern === "phone-attached" ? 3 + Math.floor(r(4) * 5) :
     pattern === "burst-checker" ? 15 + Math.floor(r(4) * 20) :
     pattern === "rare-checker" ? 60 + Math.floor(r(4) * 60) :
     pattern === "evening-only" ? 45 + Math.floor(r(4) * 30) :
     10 + Math.floor(r(4) * 15);
 
-  const onlineWindowMin =
+  let onlineWindowMin =
     pattern === "phone-attached" ? 30 + Math.floor(r(5) * 60) :
     pattern === "burst-checker" ? 2 + Math.floor(r(5) * 4) :
     pattern === "rare-checker" ? 5 + Math.floor(r(5) * 10) :
     pattern === "evening-only" ? 60 + Math.floor(r(5) * 90) :
     20 + Math.floor(r(5) * 40);
 
-  const offlineReplyChance =
+  let offlineReplyChance =
     pattern === "phone-attached" ? 0.85 :
     pattern === "burst-checker" ? 0.5 :
     pattern === "rare-checker" ? 0.25 :
     pattern === "evening-only" ? 0.3 :
     0.55;
+
+  if (communication.notifications === "priority") {
+    checkEveryMin = Math.max(2, Math.round(checkEveryMin * 0.35));
+    onlineWindowMin = Math.round(onlineWindowMin * 1.35);
+    offlineReplyChance = Math.max(offlineReplyChance, communication.initiative === "high" ? 0.95 : 0.85);
+  } else if (communication.notifications === "muted") {
+    checkEveryMin = Math.round(checkEveryMin * 1.5);
+    onlineWindowMin = Math.max(1, Math.round(onlineWindowMin * 0.65));
+    offlineReplyChance = Math.min(offlineReplyChance, 0.25);
+  }
+
+  if (["convinced", "first-date-done", "dating-early", "dating-stable", "long-term"].includes(cfg.stage)) {
+    offlineReplyChance = Math.min(0.98, offlineReplyChance + 0.12);
+    checkEveryMin = Math.max(2, Math.round(checkEveryMin * 0.8));
+  } else if (cfg.stage === "met-irl-got-tg") {
+    offlineReplyChance = Math.min(0.9, offlineReplyChance + 0.08);
+  }
 
   return { pattern, sleepFrom, sleepTo, checkEveryMin, onlineWindowMin, offlineReplyChance, nightWakeChance };
 }
@@ -166,6 +195,7 @@ export function computePresenceState(
   conflict: ConflictState | null = null
 ): PresenceState {
   const local = localParts(cfg.tz);
+  const communication = normalizeCommunicationProfile(cfg);
   const localHour = local.hour;
   const localMinute = local.minute;
   const minuteOfDay = localHour * 60 + localMinute;
@@ -205,7 +235,10 @@ export function computePresenceState(
     if (hoursToWake === 0) hoursToWake = 0.5;
     nextCheckSec = Math.floor(hoursToWake * 3600) + Math.floor(Math.random() * 1800);
   } else if (busySlot && !forcedWake) {
-    const [minCheck, maxCheck] = busySlot.slot.checkAfterMin ?? [5, 15];
+    const busyMul = communication.notifications === "priority" ? 0.45 : communication.notifications === "muted" ? 1.25 : 1;
+    const [rawMinCheck, rawMaxCheck] = busySlot.slot.checkAfterMin ?? [5, 15];
+    const minCheck = Math.max(1, Math.round(rawMinCheck * busyMul));
+    const maxCheck = Math.max(minCheck, Math.round(rawMaxCheck * busyMul));
     if (maxCheck <= 5) {
       // Скучное занятие — мини-заходы в Telegram каждые 1-5 минут на 30-90 секунд
       const cycleMin = Math.max(1, Math.round((minCheck + maxCheck) / 2));
@@ -218,7 +251,7 @@ export function computePresenceState(
       busy = { label: busySlot.slot.label, until: busySlot.until, checkAfterMin: cycleMin };
     } else {
       online = false;
-      const checkAfterMin = randomCheckAfter(busySlot.slot);
+      const checkAfterMin = minCheck + Math.floor(Math.random() * (maxCheck - minCheck + 1));
       nextCheckSec = (busySlot.remainingMin + checkAfterMin) * 60;
       busy = { label: busySlot.slot.label, until: busySlot.until, checkAfterMin };
     }
@@ -246,7 +279,7 @@ export function computePresenceState(
         notificationSeen = Math.random() < profile.offlineReplyChance;
         nextCheckSec = notificationSeen
           ? 60 + Math.floor(Math.random() * 4 * 60)
-          : Math.floor(Math.random() * profile.checkEveryMin * 60);
+          : Math.max(30, Math.floor(Math.random() * profile.checkEveryMin * 60));
       }
     }
   }
@@ -278,6 +311,9 @@ export function computePresenceState(
     hint = notificationSeen
       ? `Сейчас НЕ в сети, но уведомление увидела. Зайдёшь в Telegram через ~${Math.round(nextCheckSec / 60)} мин и тогда ответишь, если захочешь.`
       : `Сейчас НЕ в сети (паттерн: ${profile.pattern}). Уведомление не заметила; прочитаешь это через ~${Math.round(nextCheckSec / 60)} мин когда сама заглянешь в тг. Это нормально, реальные люди не сидят в тг 24/7.`;
+  }
+  if (!conflictCold && !asleep && communication.notifications === "priority") {
+    hint += ` Уведомления от него у тебя важные, поэтому в активной переписке не пропадай рандомно.`;
   }
 
   return { online, asleep, nightAwake, nextCheckSec, localHour, hint, busy, notificationSeen };

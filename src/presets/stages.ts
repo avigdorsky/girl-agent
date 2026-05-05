@@ -6,8 +6,8 @@ export const STAGE_PRESETS: StagePreset[] = [
     label: "Встретились в реале — дала тг",
     description: "Только что обменялись тг. Помнит лицо, голос. Лёгкий интерес.",
     defaults: {
-      interest: 25, trust: 10, attraction: 20, annoyance: 0, cringeTolerance: 10,
-      ignoreChance: 0.25, replyDelaySec: [60, 1800]
+      interest: 38, trust: 14, attraction: 30, annoyance: 0, cringeTolerance: 14,
+      ignoreChance: 0.12, replyDelaySec: [15, 600]
     }
   },
   {
@@ -25,7 +25,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Оттаивает. Отвечает, но коротко. Тестит тебя.",
     defaults: {
       interest: 30, trust: 15, attraction: 25, annoyance: 0, cringeTolerance: 5,
-      ignoreChance: 0.3, replyDelaySec: [120, 3600]
+      ignoreChance: 0.18, replyDelaySec: [30, 1200]
     }
   },
   {
@@ -34,7 +34,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Общаетесь регулярно, флиртует, ещё не виделись после знакомства.",
     defaults: {
       interest: 50, trust: 35, attraction: 45, annoyance: 0, cringeTolerance: 15,
-      ignoreChance: 0.15, replyDelaySec: [60, 900]
+      ignoreChance: 0.07, replyDelaySec: [10, 420]
     }
   },
   {
@@ -43,7 +43,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Первое свидание было, в подвешенном состоянии — нравится, но не пара.",
     defaults: {
       interest: 60, trust: 45, attraction: 55, annoyance: 0, cringeTolerance: 25,
-      ignoreChance: 0.1, replyDelaySec: [30, 600]
+      ignoreChance: 0.05, replyDelaySec: [8, 300]
     }
   },
   {
@@ -52,7 +52,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Около месяца вместе. Бабочки, всё внове, но границы ещё хрупкие.",
     defaults: {
       interest: 75, trust: 60, attraction: 70, annoyance: 0, cringeTolerance: 35,
-      ignoreChance: 0.05, replyDelaySec: [10, 300]
+      ignoreChance: 0.02, replyDelaySec: [3, 120]
     }
   },
   {
@@ -61,7 +61,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Стабильные отношения, шутки, бытовуха, доверие.",
     defaults: {
       interest: 80, trust: 80, attraction: 75, annoyance: 0, cringeTolerance: 50,
-      ignoreChance: 0.07, replyDelaySec: [5, 600]
+      ignoreChance: 0.03, replyDelaySec: [3, 240]
     }
   },
   {
@@ -70,7 +70,7 @@ export const STAGE_PRESETS: StagePreset[] = [
     description: "Год+ вместе. Иногда раздражение, рутина, глубокое доверие.",
     defaults: {
       interest: 70, trust: 90, attraction: 65, annoyance: 10, cringeTolerance: 60,
-      ignoreChance: 0.1, replyDelaySec: [10, 1800]
+      ignoreChance: 0.05, replyDelaySec: [5, 900]
     }
   },
   {

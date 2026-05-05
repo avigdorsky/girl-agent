@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { ProfileConfig, RelationshipScore } from "../types.js";
+import { normalizeCommunicationProfile } from "../presets/communication.js";
 
 export const DATA_ROOT = path.resolve(process.cwd(), "data");
 
@@ -39,13 +40,14 @@ export async function readConfig(slug: string): Promise<ProfileConfig | null> {
   try {
     const raw = await fs.readFile(path.join(profileDir(slug), "config.json"), "utf8");
     const parsed = JSON.parse(raw) as Partial<ProfileConfig>;
+    const communication = normalizeCommunicationProfile(parsed);
     return {
       sleepFrom: 23,
       sleepTo: 8,
       nightWakeChance: 0.05,
-      vibe: "short",
       busySchedule: [],
-      ...parsed
+      ...parsed,
+      communication
     } as ProfileConfig;
   } catch {
     return null;

@@ -10,7 +10,8 @@ import { generatePersonaPack } from "./engine/persona-gen.js";
 import { makeLLM } from "./llm/index.js";
 import { parseTzFlag, defaultTzForNationality } from "./data/timezones.js";
 import { pickRandomNames } from "./data/names.js";
-import type { ProfileConfig, ClientMode, StageId, LLMProto, Nationality } from "./types.js";
+import { communicationProfileLabel, deriveLegacyVibe, findCommunicationPreset, normalizeCommunicationProfile } from "./presets/communication.js";
+import type { ProfileConfig, ClientMode, StageId, LLMProto, Nationality, CommunicationProfile } from "./types.js";
 
 const HELP = `
 girl-agent — AI girl for Telegram
@@ -34,11 +35,15 @@ required flags для headless setup (--name --age --stage --api-preset --api-ke
   --name=<имя>                конкретное имя; если пропустить — случайное из пула по nationality (турнир выбора имён доступен ТОЛЬКО в TUI визарде)
   --age=<n>
   --persona-notes=<text>      доп. пожелания к persona/speech/communication перед генерацией
+  --communication-preset=<id> normal|cute|alt|clingy|chatty
+  --notifications=<mode>      muted|normal|priority
+  --message-style=<style>     one-liners|balanced|bursty|longform
+  --initiative=<level>        low|medium|high
+  --life-sharing=<level>      low|medium|high
   --nationality=RU|UA         (по умолчанию RU)
   --tz=<value>                IANA "Europe/Moscow" / "GMT+3" / "+3" / "Киев" — поиск
   --stage=<id>                met-irl-got-tg|tg-given-cold|tg-given-warming|convinced|first-date-done|dating-early|dating-stable|long-term
   --mcp=exa:KEY               можно несколько раз
-  --practice                  practice-режим
   --list                      показать профили
   --help
 
@@ -47,8 +52,12 @@ required flags для headless setup (--name --age --stage --api-preset --api-ke
 
 async function main() {
   const argv = mri(process.argv.slice(2), {
-    string: ["profile", "mode", "token", "api-id", "api-hash", "phone", "api-preset", "base-url", "proto", "model", "api-key", "name", "stage", "mcp", "nationality", "tz", "vibe", "persona-notes"],
-    boolean: ["practice", "help", "list", "reset"],
+    string: [
+      "profile", "mode", "token", "api-id", "api-hash", "phone", "api-preset", "base-url", "proto", "model", "api-key",
+      "name", "stage", "mcp", "nationality", "tz", "vibe", "persona-notes", "communication-preset",
+      "notifications", "message-style", "initiative", "life-sharing"
+    ],
+    boolean: ["help", "list", "reset"],
     alias: { h: "help" }
   });
 
@@ -56,8 +65,8 @@ async function main() {
 
   if (argv.age != null) {
     const a = Number(argv.age);
-    if (!Number.isFinite(a) || a < 18 || a > 99) {
-      process.stderr.write("age must be a number between 18 and 99\n");
+    if (!Number.isFinite(a) || a < 13 || a > 99) {
+      process.stderr.write("age must be a number between 13 and 99\n");
       process.exit(1);
     }
   }
@@ -88,7 +97,7 @@ async function main() {
     await writeConfig(cfg);
     process.stdout.write(`профиль: ${cfg.name}, ${cfg.age}, ${cfg.nationality}, ${cfg.tz}\nгенерируем persona.md / speech.md / communication.md...\n`);
     const llm = makeLLM(cfg.llm);
-    const generated = await generatePersonaPack(llm, cfg.slug, cfg.name, cfg.age, cfg.nationality, cfg.personaNotes ?? "");
+    const generated = await generatePersonaPack(llm, cfg.slug, cfg.name, cfg.age, cfg.nationality, personaNotesForGeneration(cfg));
     cfg.busySchedule = generated.busySchedule;
     await writeConfig(cfg);
     await runRuntime(cfg);
@@ -139,6 +148,7 @@ async function buildConfigFromFlags(argv: any): Promise<ProfileConfig> {
   const mode = (argv.mode as ClientMode) ?? "bot";
   const tz = (argv.tz ? parseTzFlag(String(argv.tz)) : undefined) ?? defaultTzForNationality(nationality);
   const mcpFlags = ([] as string[]).concat(argv.mcp ?? []);
+  const communication = communicationFromFlags(argv);
   const mcps: { id: string; secrets: Record<string, string> }[] = mcpFlags.map((entry: string) => {
     const [id, key] = entry.split(":");
     const secrets: Record<string, string> = id === "exa"
@@ -168,10 +178,34 @@ async function buildConfigFromFlags(argv: any): Promise<ProfileConfig> {
     sleepFrom: 23,
     sleepTo: 8,
     nightWakeChance: 0.05,
-    vibe: (argv.vibe === "warm" ? "warm" : "short"),
+    vibe: deriveLegacyVibe(communication),
+    communication,
     personaNotes: argv["persona-notes"] ? String(argv["persona-notes"]) : undefined,
     busySchedule: []
   };
+}
+
+function communicationFromFlags(argv: any): CommunicationProfile {
+  const preset = findCommunicationPreset(argv["communication-preset"] ? String(argv["communication-preset"]) : undefined);
+  const base = preset?.profile ?? normalizeCommunicationProfile({ vibe: argv.vibe === "warm" ? "warm" : argv.vibe === "short" ? "short" : undefined });
+  return {
+    notifications: oneOf(argv.notifications, ["muted", "normal", "priority"], base.notifications),
+    messageStyle: oneOf(argv["message-style"], ["one-liners", "balanced", "bursty", "longform"], base.messageStyle),
+    initiative: oneOf(argv.initiative, ["low", "medium", "high"], base.initiative),
+    lifeSharing: oneOf(argv["life-sharing"], ["low", "medium", "high"], base.lifeSharing)
+  };
+}
+
+function oneOf<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof raw === "string" && allowed.includes(raw as T) ? raw as T : fallback;
+}
+
+function personaNotesForGeneration(cfg: ProfileConfig): string {
+  const parts = [
+    cfg.personaNotes?.trim(),
+    `Тон общения: ${communicationProfileLabel(normalizeCommunicationProfile(cfg))}. Учти это при speech.md и communication.md.`
+  ].filter(Boolean);
+  return parts.join("\n\n");
 }
 
 async function runRuntime(cfg: ProfileConfig) {

@@ -63,6 +63,21 @@ export interface BusySlot {
   checkAfterMin?: [number, number];
 }
 
+export type NotificationMode = "muted" | "normal" | "priority";
+
+export type MessageStyle = "one-liners" | "balanced" | "bursty" | "longform";
+
+export type InitiativeLevel = "low" | "medium" | "high";
+
+export type LifeSharingLevel = "low" | "medium" | "high";
+
+export interface CommunicationProfile {
+  notifications: NotificationMode;
+  messageStyle: MessageStyle;
+  initiative: InitiativeLevel;
+  lifeSharing: LifeSharingLevel;
+}
+
 export interface ProfileConfig {
   slug: string;
   name: string;
@@ -96,6 +111,7 @@ export interface ProfileConfig {
   nightWakeChance: number;
   /** Стиль общения: "short" — реалистично-краткие ответы, чаще игнор; "warm" — развёрнутые, тёплые, придумывает истории, реже игнорит */
   vibe?: "short" | "warm";
+  communication?: CommunicationProfile;
   personaNotes?: string;
   busySchedule?: BusySlot[];
 }
