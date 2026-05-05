@@ -5,8 +5,8 @@ export const LLM_PRESETS: LLMPreset[] = [
     id: "openai",
     name: "OpenAI",
     proto: "openai",
-    defaultModel: "gpt-5.4-mini",
-    models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"]
+    defaultModel: "gpt-5.3-chat-latest",
+    models: ["gpt-5.5", "gpt-5.5-thinking", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-thinking", "gpt-5.3-chat-latest", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"]
   },
   {
     id: "anthropic",
@@ -20,12 +20,14 @@ export const LLM_PRESETS: LLMPreset[] = [
     name: "OpenRouter",
     proto: "openai",
     baseURL: "https://openrouter.ai/api/v1",
-    defaultModel: "anthropic/claude-sonnet-4.6",
+    defaultModel: "openai/gpt-5.3-chat-latest",
     models: [
+      "openai/gpt-5.3-chat-latest",
+      "openai/gpt-5.5",
+      "openai/gpt-5.5-thinking",
+      "openai/gpt-5.5-pro",
       "anthropic/claude-sonnet-4.6",
       "anthropic/claude-opus-4.7",
-      "openai/gpt-5.5",
-      "openai/gpt-5.4",
       "google/gemini-3.1-pro",
       "deepseek/deepseek-v4-pro",
       "x-ai/grok-4.3"
