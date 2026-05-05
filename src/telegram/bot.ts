@@ -27,7 +27,7 @@ export function makeBotAdapter(cfg: ProfileConfig): TgAdapter {
       bot.start({ drop_pending_updates: true }).catch(() => {});
     },
     async sendText(chatId, text) {
-      const msg = await bot.api.sendMessage(chatId as number, text);
+      const msg = await bot.api.sendMessage(chatId as number, text, { parse_mode: "MarkdownV2" });
       return msg.message_id;
     },
     async setTyping(chatId, on) {

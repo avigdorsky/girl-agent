@@ -158,7 +158,7 @@ export function makeUserbotAdapter(cfg: ProfileConfig): TgAdapter {
     },
     async editLastMessage(chatId, messageId, text) {
       const peer = await resolvePeer(chatId);
-      await client.editMessage(peer, { message: messageId, text });
+      await client.editMessage(peer, { message: messageId, text, parseMode: 'MarkdownV2' });
     },
     async deleteMessages(chatId, messageIds, revoke = false) {
       const peer = await resolvePeer(chatId);
