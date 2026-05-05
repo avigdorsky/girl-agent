@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — Telegram formatting fix
+
+Дата: 2026-05-05
+
+- Исправлено: включён `parse_mode: "MarkdownV2"` для отправки сообщений в Telegram (bot и userbot).
+- Теперь поддерживается форматирование спойлеров `||текст||` и другие MarkdownV2-стили.
+
 ## 0.1.2 — communication realism update
 
 Дата: 2026-05-05
