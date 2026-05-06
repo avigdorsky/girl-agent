@@ -1,25 +1,31 @@
 //! girl-agent installer (iced wizard).
 //!
-//! Walks the user through pre-flight, Telegram credentials, LLM provider,
-//! persona basics, then runs `npm install -g @thesashadev/girl-agent` and
-//! writes a profile config. The desktop app picks the new profile up
-//! automatically on next launch.
+//! Walks the user through Telegram credentials, LLM provider, persona
+//! basics, then extracts a bundled portable Node + cli.js into
+//! `%APPDATA%\girl-agent\runtime\` and writes the profile config. No
+//! `npm` / `npx` is required on the target machine — everything lives
+//! inside this single .exe.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
 mod data;
 mod install;
-mod preflight;
+mod tg_proxy;
 mod ui;
 
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use girl_agent_shared::fonts;
-use iced::Task;
+use iced::{Subscription, Task};
+use rand::Rng;
 
-use crate::config::WizardData;
-use crate::ui::{InstallOutcome, Msg, Step};
+use crate::config::{NameMode, UserbotAuthSource, WizardData};
+use crate::data::{find_llm_preset, pick_random_name, search_tz, default_tz_for_nationality, NAMES_RU, NAMES_UA};
+use crate::install::{InstallProgress, InstallStage};
+use crate::ui::{InstallOutcome, Msg, Step, TgAuthSuccess, TgVerifyOutcome};
 
 fn main() -> iced::Result {
     init_tracing();
@@ -34,96 +40,358 @@ fn main() -> iced::Result {
         .font(fonts::JETBRAINS_MONO_TTF)
         .font(fonts::INSTRUMENT_SERIF_ITALIC_TTF)
         .default_font(fonts::ONEST)
+        .subscription(App::subscription)
         .window(window_settings())
         .run_with(App::new)
 }
 
 struct App {
     model: ui::Model,
+    install_rx: Option<mpsc::Receiver<InstallProgress>>,
 }
 
 impl App {
     fn new() -> (Self, Task<Msg>) {
-        let preflight = preflight::run();
-        let model = ui::Model {
-            step: Step::Welcome,
-            data: WizardData::default(),
-            preflight,
-            install: None,
-            installing: false,
-        };
-        (Self { model }, Task::none())
+        let mut model = ui::Model::default();
+        // pre-fill a random name so the persona screen is never blank
+        let seed: u64 = rand::thread_rng().gen();
+        model.data.name = pick_random_name(&model.data.nationality, seed).to_string();
+        model.data.refresh_slug();
+        (Self { model, install_rx: None }, Task::none())
     }
 
     fn view(&self) -> iced::Element<'_, Msg> {
         ui::view(&self.model)
     }
 
+    fn subscription(&self) -> Subscription<Msg> {
+        if self.model.installing {
+            iced::time::every(Duration::from_millis(80)).map(|_| Msg::InstallProgressTick(InstallProgress {
+                stage: InstallStage::Start,
+                fraction: -1.0,
+                note: String::new(),
+            }))
+        } else {
+            Subscription::none()
+        }
+    }
+
     fn update(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::Next => {
-                self.model.step = next_step(self.model.step);
+                self.model.step = next_step(self.model.step, &self.model.data);
                 if self.model.step == Step::Summary {
                     self.model.data.refresh_slug();
+                    self.model.data.apply_llm_preset_defaults();
                 }
                 Task::none()
             }
             Msg::Back => {
-                self.model.step = prev_step(self.model.step);
+                self.model.step = prev_step(self.model.step, &self.model.data);
                 Task::none()
             }
-            Msg::NameChanged(v) => { self.model.data.name = v; self.model.data.refresh_slug(); Task::none() }
-            Msg::AgeChanged(v) => { self.model.data.age = v; Task::none() }
-            Msg::NationalityChanged(v) => { self.model.data.nationality = v; Task::none() }
-            Msg::TzChanged(v) => { self.model.data.tz = v; Task::none() }
-            Msg::StageChanged(v) => { self.model.data.stage = v; Task::none() }
-            Msg::CommunicationChanged(v) => { self.model.data.communication = v; Task::none() }
-            Msg::ModeChanged(v) => { self.model.data.mode = v; Task::none() }
-            Msg::TgTokenChanged(v) => { self.model.data.tg_token = v; Task::none() }
-            Msg::TgApiIdChanged(v) => { self.model.data.tg_api_id = v; Task::none() }
-            Msg::TgApiHashChanged(v) => { self.model.data.tg_api_hash = v; Task::none() }
-            Msg::TgPhoneChanged(v) => { self.model.data.tg_phone = v; Task::none() }
-            Msg::LlmPresetChanged(v) => { self.model.data.llm_preset = v; Task::none() }
-            Msg::LlmModelChanged(v) => { self.model.data.llm_model = v; Task::none() }
-            Msg::LlmKeyChanged(v) => { self.model.data.llm_api_key = v; Task::none() }
+
+            // Telegram
+            Msg::ModeChanged(v) => {
+                self.model.data.mode = v;
+                Task::none()
+            }
+            Msg::UserbotSourceChanged(s) => {
+                self.model.data.userbot_source = s;
+                Task::none()
+            }
+            Msg::TgTokenChanged(v) => {
+                self.model.data.tg_token = v;
+                Task::none()
+            }
+            Msg::TgApiIdChanged(v) => {
+                self.model.data.tg_api_id = v;
+                Task::none()
+            }
+            Msg::TgApiHashChanged(v) => {
+                self.model.data.tg_api_hash = v;
+                Task::none()
+            }
+            Msg::TgPhoneChanged(v) => {
+                self.model.data.tg_phone = v;
+                Task::none()
+            }
+            Msg::TgCodeChanged(v) => {
+                self.model.data.tg_code = v;
+                Task::none()
+            }
+            Msg::Tg2FaChanged(v) => {
+                self.model.data.tg_2fa = v;
+                Task::none()
+            }
+
+            Msg::TgSendCode => {
+                let phone = self.model.data.tg_phone.clone();
+                self.model.tg_status = ui::AsyncStatus { busy: true, error: None, note: None };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || tg_proxy::send_code(&phone))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!("join: {e}")))
+                            .map(|r| r.login_token)
+                            .map_err(|e| e.to_string())
+                    },
+                    Msg::TgSendCodeFinished,
+                )
+            }
+            Msg::TgSendCodeFinished(res) => {
+                self.model.tg_status.busy = false;
+                match res {
+                    Ok(token) => {
+                        self.model.data.tg_login_token = token;
+                        self.model.tg_status.note = Some("код отправлен в telegram".into());
+                        self.model.step = Step::TgUserbotCode;
+                    }
+                    Err(e) => {
+                        self.model.tg_status.error = Some(e);
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::TgVerifyCode => {
+                let token = self.model.data.tg_login_token.clone();
+                let code = self.model.data.tg_code.clone();
+                self.model.tg_status = ui::AsyncStatus { busy: true, error: None, note: None };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || tg_proxy::verify_code(&token, &code))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!("join: {e}")))
+                            .map(|r| match r {
+                                tg_proxy::VerifyCodeResult::Success(s) => TgVerifyOutcome {
+                                    success: Some(TgAuthSuccess {
+                                        session_string: s.session_string,
+                                        api_id: s.api_id,
+                                        api_hash: s.api_hash,
+                                    }),
+                                    needs_2fa_login_token: None,
+                                },
+                                tg_proxy::VerifyCodeResult::Needs2Fa { login_token } => {
+                                    TgVerifyOutcome {
+                                        success: None,
+                                        needs_2fa_login_token: Some(login_token),
+                                    }
+                                }
+                            })
+                            .map_err(|e| e.to_string())
+                    },
+                    Msg::TgVerifyCodeFinished,
+                )
+            }
+            Msg::TgVerifyCodeFinished(res) => {
+                self.model.tg_status.busy = false;
+                match res {
+                    Ok(out) => {
+                        if let Some(s) = out.success {
+                            self.model.data.tg_session_string = s.session_string;
+                            self.model.data.tg_resolved_api_id = s.api_id.to_string();
+                            self.model.data.tg_resolved_api_hash = s.api_hash;
+                            self.model.tg_status.note = Some("вход выполнен".into());
+                            self.model.step = Step::LlmPicker;
+                        } else if let Some(token) = out.needs_2fa_login_token {
+                            self.model.data.tg_login_token = token;
+                            self.model.data.tg_needs_2fa = true;
+                            self.model.tg_status.note = Some("включена двухфакторная — введи пароль".into());
+                            self.model.step = Step::TgUserbot2Fa;
+                        }
+                    }
+                    Err(e) => {
+                        self.model.tg_status.error = Some(e);
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::TgVerifyPassword => {
+                let token = self.model.data.tg_login_token.clone();
+                let pass = self.model.data.tg_2fa.clone();
+                self.model.tg_status = ui::AsyncStatus { busy: true, error: None, note: None };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || tg_proxy::verify_password(&token, &pass))
+                            .await
+                            .unwrap_or_else(|e| Err(anyhow::anyhow!("join: {e}")))
+                            .map(|s| TgAuthSuccess {
+                                session_string: s.session_string,
+                                api_id: s.api_id,
+                                api_hash: s.api_hash,
+                            })
+                            .map_err(|e| e.to_string())
+                    },
+                    Msg::TgVerifyPasswordFinished,
+                )
+            }
+            Msg::TgVerifyPasswordFinished(res) => {
+                self.model.tg_status.busy = false;
+                match res {
+                    Ok(s) => {
+                        self.model.data.tg_session_string = s.session_string;
+                        self.model.data.tg_resolved_api_id = s.api_id.to_string();
+                        self.model.data.tg_resolved_api_hash = s.api_hash;
+                        self.model.tg_status.note = Some("вход выполнен".into());
+                        self.model.step = Step::LlmPicker;
+                    }
+                    Err(e) => {
+                        self.model.tg_status.error = Some(e);
+                    }
+                }
+                Task::none()
+            }
+
+            // LLM
+            Msg::LlmPresetChanged(v) => {
+                self.model.data.llm_preset = v;
+                self.model.data.llm_model = String::new();
+                self.model.data.llm_base_url = String::new();
+                self.model.data.llm_api_key = String::new();
+                self.model.data.apply_llm_preset_defaults();
+                Task::none()
+            }
+            Msg::LlmModelChanged(v) => {
+                self.model.data.llm_model = v;
+                Task::none()
+            }
+            Msg::LlmKeyChanged(v) => {
+                self.model.data.llm_api_key = v;
+                Task::none()
+            }
+            Msg::LlmBaseUrlChanged(v) => {
+                self.model.data.llm_base_url = v;
+                Task::none()
+            }
+
+            // Persona
+            Msg::NationalityChanged(v) => {
+                self.model.data.nationality = v.clone();
+                if self.model.data.tz.is_empty()
+                    || matches!(self.model.data.tz.as_str(), "Europe/Moscow" | "Europe/Kyiv")
+                {
+                    self.model.data.tz = default_tz_for_nationality(&v).to_string();
+                }
+                if matches!(self.model.data.name_mode, NameMode::Random) {
+                    let seed: u64 = rand::thread_rng().gen();
+                    self.model.data.name = pick_random_name(&v, seed).to_string();
+                    self.model.data.refresh_slug();
+                }
+                Task::none()
+            }
+            Msg::NameModeChanged(m) => {
+                self.model.data.name_mode = m;
+                Task::none()
+            }
+            Msg::NameChanged(v) => {
+                self.model.data.name = v;
+                self.model.data.name_mode = NameMode::Manual;
+                self.model.data.refresh_slug();
+                Task::none()
+            }
+            Msg::NameRandom => {
+                let seed: u64 = rand::thread_rng().gen();
+                self.model.data.name = pick_random_name(&self.model.data.nationality, seed).to_string();
+                self.model.data.name_mode = NameMode::Random;
+                self.model.data.refresh_slug();
+                Task::none()
+            }
+            Msg::AgeChanged(v) => {
+                self.model.data.age = v.clamp(14, 99);
+                Task::none()
+            }
+            Msg::TzQueryChanged(v) => {
+                self.model.tz_query = v;
+                Task::none()
+            }
+            Msg::TzSelected(v) => {
+                self.model.data.tz = v;
+                Task::none()
+            }
+            Msg::SleepPresetChanged(v) => {
+                self.model.data.sleep_preset = v;
+                Task::none()
+            }
+
+            // Style
+            Msg::StageChanged(v) => {
+                self.model.data.stage = v;
+                Task::none()
+            }
+            Msg::CommunicationChanged(v) => {
+                self.model.data.communication = v;
+                Task::none()
+            }
+            Msg::PrivacyChanged(v) => {
+                self.model.data.privacy = v;
+                Task::none()
+            }
+
+            // Notes
+            Msg::NotesChanged(v) => {
+                self.model.data.persona_notes = v;
+                Task::none()
+            }
+
+            // Install
             Msg::StartInstall => {
                 self.model.installing = true;
+                self.model.install_error = None;
                 self.model.step = Step::Installing;
+                self.model.install_progress = InstallProgress {
+                    stage: InstallStage::Start,
+                    fraction: 0.02,
+                    note: "подготовка…".into(),
+                };
+                let (tx, rx) = mpsc::channel();
+                self.install_rx = Some(rx);
                 let data = self.model.data.clone();
                 Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || install::run(&data))
+                        tokio::task::spawn_blocking(move || install::run(&data, tx))
                             .await
                             .unwrap_or_else(|e| Err(anyhow::anyhow!("join: {e}")))
+                            .map(|r| InstallOutcome {
+                                log: r.log,
+                                config_path: r.config_path.display().to_string(),
+                                runtime_dir: r.runtime_dir.display().to_string(),
+                            })
+                            .map_err(|e| e.to_string())
                     },
-                    |res| {
-                        Msg::InstallFinished(InstallOutcome {
-                            ok: res.is_ok(),
-                            log: match &res {
-                                Ok(r) => r.npm_log.clone(),
-                                Err(e) => e.to_string(),
-                            },
-                            config_path: match &res {
-                                Ok(r) => r.config_path.display().to_string(),
-                                Err(_) => String::new(),
-                            },
-                        })
-                    },
+                    Msg::InstallFinished,
                 )
             }
-            Msg::InstallFinished(o) => {
-                self.model.installing = false;
-                self.model.install = Some(o);
-                self.model.step = Step::Done;
+            Msg::InstallProgressTick(_marker) => {
+                if let Some(rx) = &self.install_rx {
+                    while let Ok(p) = rx.try_recv() {
+                        self.model.install_progress = p;
+                    }
+                }
                 Task::none()
             }
+            Msg::InstallFinished(res) => {
+                self.model.installing = false;
+                self.install_rx = None;
+                match res {
+                    Ok(o) => {
+                        self.model.install = Some(o);
+                        self.model.step = Step::Done;
+                    }
+                    Err(e) => {
+                        self.model.install_error = Some(e);
+                        self.model.step = Step::Done;
+                    }
+                }
+                Task::none()
+            }
+
             Msg::LaunchAndQuit => {
                 let _ = launch_desktop_app();
                 std::process::exit(0);
             }
-            Msg::Quit => {
-                std::process::exit(0);
-            }
+            Msg::Quit => std::process::exit(0),
             Msg::OpenLink(url) => {
                 let _ = open::that_in_background(url);
                 Task::none()
@@ -132,35 +400,80 @@ impl App {
     }
 }
 
-fn next_step(s: Step) -> Step {
+fn next_step(s: Step, d: &WizardData) -> Step {
+    use Step::*;
     match s {
-        Step::Welcome => Step::Preflight,
-        Step::Preflight => Step::Telegram,
-        Step::Telegram => Step::Llm,
-        Step::Llm => Step::Persona,
-        Step::Persona => Step::Summary,
-        Step::Summary => Step::Installing,
-        Step::Installing => Step::Done,
-        Step::Done => Step::Done,
+        Welcome => TgMode,
+        TgMode => {
+            if d.mode == "bot" {
+                TgBotToken
+            } else {
+                TgUserbotSource
+            }
+        }
+        TgBotToken => LlmPicker,
+        TgUserbotSource => match d.userbot_source {
+            UserbotAuthSource::Owner => TgUserbotPhone,
+            UserbotAuthSource::Own => TgUserbotApi,
+        },
+        TgUserbotApi => TgUserbotPhone,
+        TgUserbotPhone => TgUserbotCode,
+        TgUserbotCode => {
+            if d.tg_needs_2fa {
+                TgUserbot2Fa
+            } else {
+                LlmPicker
+            }
+        }
+        TgUserbot2Fa => LlmPicker,
+        LlmPicker => LlmConfig,
+        LlmConfig => Persona,
+        Persona => Style,
+        Style => Notes,
+        Notes => Summary,
+        Summary => Installing,
+        Installing => Done,
+        Done => Done,
     }
 }
 
-fn prev_step(s: Step) -> Step {
+fn prev_step(s: Step, d: &WizardData) -> Step {
+    use Step::*;
     match s {
-        Step::Welcome => Step::Welcome,
-        Step::Preflight => Step::Welcome,
-        Step::Telegram => Step::Preflight,
-        Step::Llm => Step::Telegram,
-        Step::Persona => Step::Llm,
-        Step::Summary => Step::Persona,
-        Step::Installing | Step::Done => Step::Summary,
+        Welcome => Welcome,
+        TgMode => Welcome,
+        TgBotToken => TgMode,
+        TgUserbotSource => TgMode,
+        TgUserbotApi => TgUserbotSource,
+        TgUserbotPhone => match d.userbot_source {
+            UserbotAuthSource::Owner => TgUserbotSource,
+            UserbotAuthSource::Own => TgUserbotApi,
+        },
+        TgUserbotCode => TgUserbotPhone,
+        TgUserbot2Fa => TgUserbotCode,
+        LlmPicker => {
+            if d.mode == "bot" {
+                TgBotToken
+            } else if d.tg_needs_2fa {
+                TgUserbot2Fa
+            } else {
+                TgUserbotCode
+            }
+        }
+        LlmConfig => LlmPicker,
+        Persona => LlmConfig,
+        Style => Persona,
+        Notes => Style,
+        Summary => Notes,
+        Installing => Summary,
+        Done => Summary,
     }
 }
 
 fn window_settings() -> iced::window::Settings {
     iced::window::Settings {
-        size: iced::Size::new(720.0, 640.0),
-        min_size: Some(iced::Size::new(640.0, 540.0)),
+        size: iced::Size::new(820.0, 720.0),
+        min_size: Some(iced::Size::new(720.0, 600.0)),
         ..iced::window::Settings::default()
     }
 }
@@ -186,9 +499,12 @@ fn launch_desktop_app() -> std::io::Result<()> {
     if candidate.exists() {
         std::process::Command::new(candidate).spawn().map(|_| ())
     } else {
-        // Best effort — at least open the data directory so the user knows
-        // where things landed.
         let _ = open::that_in_background(girl_agent_shared::paths::data_dir());
         Ok(())
     }
+}
+
+#[allow(dead_code)]
+fn unused_imports_silencer() {
+    let _ = (find_llm_preset, search_tz, NAMES_RU, NAMES_UA);
 }

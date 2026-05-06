@@ -11,6 +11,12 @@ description = "Iced-based Windows installer + persona setup wizard for girl-agen
 name = "girl-agent-installer"
 path = "src/main.rs"
 
+[features]
+default = []
+# Embed bundled node.exe + cli.js + node_modules into the binary.
+# Disabled when the runtime/ folder is empty (cargo check / dev build).
+embed-runtime = []
+
 [dependencies]
 girl-agent-shared = { path = "../shared" }
 iced = { workspace = true, features = ["tokio", "advanced", "image"] }
@@ -20,6 +26,10 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
-which = "7"
 open = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ureq = { version = "2", default-features = false, features = ["json", "tls"] }
+lzma-rs = "0.3"
+tar = "0.4"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+rand = "0.8"

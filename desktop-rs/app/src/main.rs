@@ -120,8 +120,16 @@ fn window_settings() -> iced::window::Settings {
 }
 
 fn decide_launcher() -> BotLauncher {
-    // Prefer running a sibling `dist/cli.js` if it exists (developer mode);
-    // fall back to `npx` in production installs.
+    let runtime_dir = girl_agent_shared::paths::runtime_dir();
+    let node_name = if cfg!(target_os = "windows") { "node.exe" } else { "node" };
+    let portable_node = runtime_dir.join(node_name);
+    let portable_cli = runtime_dir.join("cli.js");
+    if portable_node.exists() && portable_cli.exists() {
+        return BotLauncher::Portable {
+            node_path: portable_node,
+            cli_path: portable_cli,
+        };
+    }
     if let Ok(exe) = std::env::current_exe() {
         let mut p = exe.clone();
         for _ in 0..6 {

@@ -19,15 +19,23 @@ use tokio::sync::Mutex;
 
 use crate::types::RuntimeEvent;
 
-/// How we launch the bot. The `Npx` variant is convenient for the production
-/// installer flow; `Node` is used when running from a checked-out clone.
+/// How we launch the bot.
+///
+/// `Portable` is the default after install: a fully self-contained `node.exe`
+/// + bundled `cli.js` that lives under `<data>/runtime/`. `System` falls back
+/// to the OS `node` if it's on the `$PATH`. `Npx` is the legacy install path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BotLauncher {
+    /// Bundled portable runtime: `<runtime>/node(.exe) <runtime>/cli.js`.
+    Portable {
+        node_path: PathBuf,
+        cli_path: PathBuf,
+    },
     /// `npx @thesashadev/girl-agent` — picks up the package globally / via npx
     /// cache.
     Npx,
-    /// `node <cli_path>` — used by `npm run dev` / git clone installs.
+    /// `node <cli_path>` using the system `node` from `$PATH`.
     Node { cli_path: PathBuf },
 }
 
@@ -150,6 +158,11 @@ fn build_command(spec: &BotSpawnConfig) -> Result<Command> {
         }
         BotLauncher::Node { cli_path } => {
             let mut c = Command::new(if cfg!(target_os = "windows") { "node.exe" } else { "node" });
+            c.arg(cli_path);
+            c
+        }
+        BotLauncher::Portable { node_path, cli_path } => {
+            let mut c = Command::new(node_path);
             c.arg(cli_path);
             c
         }

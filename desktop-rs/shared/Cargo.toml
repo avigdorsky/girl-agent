@@ -15,7 +15,6 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-directories = { workspace = true }
 once_cell = { workspace = true }
 async-channel = { workspace = true }
 futures-util = { workspace = true }

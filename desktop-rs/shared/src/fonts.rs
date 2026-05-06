@@ -43,8 +43,10 @@ pub const ONEST: Font = Font::with_name("Onest");
 /// technical text.
 pub const JETBRAINS: Font = Font::with_name("JetBrains Mono");
 
-/// Decorative italic — Instrument Serif. Used sparingly for accent quotes.
-pub const INSTRUMENT_SERIF: Font = Font::with_name("Instrument Serif");
+/// Decorative italic. We ship a Cyrillic-aware serif italic — currently
+/// PT Serif Italic, exposed under the original `INSTRUMENT_SERIF` name so
+/// callers don't need to change.
+pub const INSTRUMENT_SERIF: Font = Font::with_name("PT Serif");
 
 /// Helper to create a bold Onest variant.
 pub fn onest_bold() -> Font {
