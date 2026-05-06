@@ -67,6 +67,30 @@ async function main() {
 
   if (argv.help) { process.stdout.write(HELP); return; }
 
+  // --- Sanity: TTY/raw-mode detection so terminals that can't render the
+  // wizard fail loudly instead of exiting silently after npm warnings.
+  // We only require a TTY when we know we'll need to draw the ink wizard or
+  // the live dashboard. Headless / --json-events / --list don't need it.
+  const isHeadless = !!(argv["json-events"] || argv.headless || argv.list || argv.help);
+  if (!isHeadless) {
+    const stdin = process.stdin as NodeJS.ReadStream & { isTTY?: boolean };
+    const stdout = process.stdout as NodeJS.WriteStream & { isTTY?: boolean };
+    const stdinOk = !!stdin.isTTY;
+    const stdoutOk = !!stdout.isTTY;
+    if (!stdinOk || !stdoutOk) {
+      process.stderr.write(
+        "\n[girl-agent] этот терминал не поддерживает интерактивный режим (нет TTY).\n" +
+        `  stdin.isTTY = ${stdinOk}, stdout.isTTY = ${stdoutOk}\n` +
+        "  ink-визард не сможет принять ввод.\n\n" +
+        "что делать:\n" +
+        "  1. запусти команду в обычном терминале (cmd, powershell, bash, zsh);\n" +
+        "  2. или используй headless-режим с флагами: --mode --api-preset --age --stage и т.д.;\n" +
+        "  3. или скачай windows installer .exe — он не требует ink/TUI.\n"
+      );
+      process.exit(2);
+    }
+  }
+
   const jsonEvents = !!(argv["json-events"] || argv.headless);
 
   if (argv.age != null) {
@@ -238,7 +262,19 @@ async function runRuntime(cfg: ProfileConfig, opts: { jsonEvents?: boolean } = {
   await rt.stop();
 }
 
+process.on("unhandledRejection", (reason) => {
+  const r = reason as { stack?: string } | string | undefined;
+  const text = (typeof r === "object" && r && r.stack) ? r.stack : String(reason);
+  process.stderr.write("[girl-agent] unhandled rejection: " + text + "\n");
+  process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+  process.stderr.write("[girl-agent] uncaught: " + (err?.stack ?? err) + "\n");
+  process.exit(1);
+});
+
 main().catch((e) => {
-  process.stderr.write("fatal: " + (e?.stack ?? e) + "\n");
+  process.stderr.write("[girl-agent] fatal: " + (e?.stack ?? e) + "\n");
   process.exit(1);
 });
