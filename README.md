@@ -10,6 +10,8 @@
 Со всеми проблемами и багами пишите в Issues.
 ТГ создателя - @voided_net
 
+Тг канал: https://t.me/GirlAgentAI/
+Тг сообщество: https://t.me/GirlAgentAI_chat/
 ---
 
 ## Содержание
