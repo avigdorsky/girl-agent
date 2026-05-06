@@ -49,7 +49,7 @@ Wizard задаст пару вопросов — имя, возраст, Telegr
 npx @thesashadev/girl-agent --profile=arina
 ```
 
-**Через Docker (рекомендуется для сервера 24/7):**
+**Через Docker (рекомендуется для сервера):**
 
 Первый запуск с интерактивом (для настройки через визард):
 ```bash
@@ -61,6 +61,8 @@ docker-compose run --rm -it girl-agent
 ```bash
 docker-compose up -d
 ```
+*(если профилей несколько, запустите конкретный так: `docker-compose run -d girl-agent node dist/cli.js --profile=arina`)*
+
 *(посмотреть логи: `docker-compose logs -f`)*
 
 **Из исходников:**
