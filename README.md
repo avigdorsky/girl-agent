@@ -1,4 +1,4 @@
-﻿![girl-agent banner](https://girl-agent.com/og-image.png)
+![girl-agent banner](https://girl-agent.com/og-image.png)
 
 [website]: https://girl-agent.com
 [docs]: https://docs.girl-agent.com
@@ -48,6 +48,20 @@ Wizard задаст пару вопросов — имя, возраст, Telegr
 ```powershell
 npx @thesashadev/girl-agent --profile=arina
 ```
+
+**Через Docker (рекомендуется для сервера 24/7):**
+
+Первый запуск с интерактивом (для настройки через визард):
+```bash
+docker-compose run --rm -it girl-agent
+```
+*(пройдите все шаги и после появления дашборда нажмите `Ctrl+C`)*
+
+Последующие (запуск в фоне):
+```bash
+docker-compose up -d
+```
+*(посмотреть логи: `docker-compose logs -f`)*
 
 **Из исходников:**
 
