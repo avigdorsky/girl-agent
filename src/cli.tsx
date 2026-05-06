@@ -10,6 +10,7 @@ import { generatePersonaPack } from "./engine/persona-gen.js";
 import { makeLLM } from "./llm/index.js";
 import { parseTzFlag, defaultTzForNationality } from "./data/timezones.js";
 import { pickRandomNames } from "./data/names.js";
+import { runHeadlessJsonEvents } from "./headless.js";
 import { communicationProfileLabel, deriveLegacyVibe, findCommunicationPreset, normalizeCommunicationProfile } from "./presets/communication.js";
 import type { ProfileConfig, ClientMode, StageId, LLMProto, Nationality, CommunicationProfile, PrivacyMode } from "./types.js";
 
@@ -60,11 +61,13 @@ async function main() {
       "name", "stage", "mcp", "nationality", "tz", "vibe", "persona-notes", "communication-preset",
       "notifications", "message-style", "initiative", "life-sharing", "privacy"
     ],
-    boolean: ["help", "list", "reset", "new"],
+    boolean: ["help", "list", "reset", "new", "json-events", "headless"],
     alias: { h: "help" }
   });
 
   if (argv.help) { process.stdout.write(HELP); return; }
+
+  const jsonEvents = !!(argv["json-events"] || argv.headless);
 
   if (argv.age != null) {
     const a = Number(argv.age);
@@ -94,7 +97,7 @@ async function main() {
       cfg.stage = "tg-given-cold";
       await writeConfig(cfg);
     }
-    await runRuntime(cfg);
+    await runRuntime(cfg, { jsonEvents });
     return;
   }
 
@@ -111,7 +114,7 @@ async function main() {
     const generated = await generatePersonaPack(llm, cfg.slug, cfg.name, cfg.age, cfg.nationality, personaNotesForGeneration(cfg));
     cfg.busySchedule = generated.busySchedule;
     await writeConfig(cfg);
-    await runRuntime(cfg);
+    await runRuntime(cfg, { jsonEvents });
     return;
   }
 
@@ -122,7 +125,7 @@ async function main() {
       const cfg = await readConfig(profiles[0]);
       if (cfg) {
         process.stdout.write(`загружаю профиль: ${cfg.name}\n`);
-        await runRuntime(cfg);
+        await runRuntime(cfg, { jsonEvents });
         return;
       }
     } else if (profiles.length > 1) {
@@ -137,7 +140,7 @@ async function main() {
     const inst = render(
       <Wizard onDone={async (cfg) => {
         inst.unmount();
-        await runRuntime(cfg);
+        await runRuntime(cfg, { jsonEvents });
         resolve();
       }} />,
       { exitOnCtrlC: true }
@@ -221,9 +224,14 @@ function personaNotesForGeneration(cfg: ProfileConfig): string {
   return parts.join("\n\n");
 }
 
-async function runRuntime(cfg: ProfileConfig) {
+async function runRuntime(cfg: ProfileConfig, opts: { jsonEvents?: boolean } = {}) {
   const rt = new Runtime(cfg);
   await rt.start();
+  if (opts.jsonEvents) {
+    // Headless / JSON-events mode — used by Rust desktop wrapper.
+    await runHeadlessJsonEvents(rt);
+    return;
+  }
   const inst = render(<Dashboard runtime={rt} />, { exitOnCtrlC: true });
   process.on("SIGINT", async () => { await rt.stop(); inst.unmount(); process.exit(0); });
   await inst.waitUntilExit();

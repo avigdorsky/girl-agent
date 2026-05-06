@@ -1,0 +1,25 @@
+[package]
+name = "girl-agent-installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Iced-based Windows installer + persona setup wizard for girl-agent."
+
+[[bin]]
+name = "girl-agent-installer"
+path = "src/main.rs"
+
+[dependencies]
+girl-agent-shared = { path = "../shared" }
+iced = { workspace = true, features = ["tokio", "advanced", "image"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+which = "7"
+open = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
