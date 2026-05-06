@@ -6,6 +6,7 @@ use crate::data::{find_llm_preset, slugify};
 pub enum NameMode {
     Random,
     Manual,
+    Tournament,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,9 +51,28 @@ pub struct WizardData {
     pub stage: String,
     pub communication: String,
     pub sleep_preset: String,
+    /// only used when sleep_preset == "custom"
+    pub sleep_custom_from: u8, // 0..=23
+    pub sleep_custom_to: u8,   // 0..=23
+    pub sleep_custom_wake_chance: u8, // 0..=100 percent
     pub privacy: String,
     pub persona_notes: String,
     pub slug: String,
+
+    // Tournament-mode name picker
+    pub tournament_round: u32,        // 0-based
+    pub tournament_pair: (String, String),
+    pub tournament_qualifiers: Vec<String>,
+    pub tournament_seen: Vec<String>,
+    pub tournament_pool: Vec<String>,
+    pub tournament_phase: TournamentPhase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TournamentPhase {
+    Idle,
+    Quals,
+    Knockout,
 }
 
 impl Default for WizardData {
@@ -72,7 +92,7 @@ impl Default for WizardData {
             tg_resolved_api_hash: String::new(),
             tg_needs_2fa: false,
 
-            llm_preset: "openai".into(),
+            llm_preset: "claudehub".into(),
             llm_model: String::new(),
             llm_api_key: String::new(),
             llm_base_url: String::new(),
@@ -85,9 +105,18 @@ impl Default for WizardData {
             stage: "tg-given-cold".into(),
             communication: "normal".into(),
             sleep_preset: "standard".into(),
+            sleep_custom_from: 0,
+            sleep_custom_to: 9,
+            sleep_custom_wake_chance: 5,
             privacy: "owner-only".into(),
             persona_notes: String::new(),
             slug: String::new(),
+            tournament_round: 0,
+            tournament_pair: (String::new(), String::new()),
+            tournament_qualifiers: Vec::new(),
+            tournament_seen: Vec::new(),
+            tournament_pool: Vec::new(),
+            tournament_phase: TournamentPhase::Idle,
         }
     }
 }

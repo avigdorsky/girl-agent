@@ -15,9 +15,31 @@ pub struct LlmPreset {
     pub custom: bool,
     pub models: &'static [&'static str],
     pub hint: &'static str,
+    pub recommended: bool,
+    pub referral_url: Option<&'static str>,
+    pub referral_label: Option<&'static str>,
 }
 
 pub const LLM_PRESETS: &[LlmPreset] = &[
+    LlmPreset {
+        id: "claudehub",
+        label: "ClaudeHub",
+        proto: "anthropic",
+        base_url: Some("https://api.claudehub.fun"),
+        default_model: "claude-sonnet-4.6",
+        default_api_key: None,
+        api_key_required: true,
+        custom: false,
+        models: &[
+            "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5",
+            "claude-sonnet-4.6", "claude-sonnet-4.5", "claude-haiku-4.5",
+            "gpt-5.5", "gpt-5.4",
+        ],
+        hint: "рекомендуем · прокси для Claude / GPT · РФ, СБП, крипта · по реферальной ссылке +бонус",
+        recommended: true,
+        referral_url: Some("https://app.claudehub.fun/r/7BXGRY"),
+        referral_label: Some("открыть claudehub.fun (реферал)"),
+    },
     LlmPreset {
         id: "openai",
         label: "OpenAI",
@@ -34,6 +56,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini",
         ],
         hint: "ChatGPT API · нужен ключ из platform.openai.com",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "lmstudio",
@@ -46,6 +71,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: true,
         models: &[],
         hint: "локально, OpenAI-совместимый эндпоинт; ключ не нужен",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "ollama",
@@ -58,6 +86,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: true,
         models: &[],
         hint: "локально через /v1; ключ не нужен",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "anthropic",
@@ -73,6 +104,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "claude-opus-4-6", "claude-sonnet-4-5", "claude-opus-4-1",
         ],
         hint: "Claude · нужен ключ из console.anthropic.com",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "openrouter",
@@ -90,6 +124,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "google/gemini-3.1-pro", "deepseek/deepseek-v4-pro", "x-ai/grok-4.3",
         ],
         hint: "агрегатор моделей · openrouter.ai · приём в крипте",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "groq",
@@ -105,6 +142,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "llama-4-scout-17b-16e-instruct", "qwen-3-32b", "mixtral-8x7b-32768",
         ],
         hint: "очень быстрый инференс на open-source моделях",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "deepseek",
@@ -117,6 +157,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: false,
         models: &["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"],
         hint: "deepseek-chat/reasoner deprecated 2026-07-24, бери V4",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "mistral",
@@ -133,6 +176,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "mistral-large-latest", "mistral-small-latest",
         ],
         hint: "французский провайдер, Le Chat и API",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "google",
@@ -145,6 +191,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: false,
         models: &["gemini-3.1-pro", "gemini-3-flash", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash"],
         hint: "Gemini через OpenAI-совместимый эндпоинт",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "xai",
@@ -157,6 +206,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: false,
         models: &["grok-4.3", "grok-4.20-reasoning", "grok-4.20-non-reasoning", "grok-4", "grok-3", "grok-3-mini"],
         hint: "Grok от xAI · ключ из console.x.ai",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "together",
@@ -174,6 +226,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "deepseek-ai/DeepSeek-V3",
         ],
         hint: "хостинг open-source моделей",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "fireworks",
@@ -191,6 +246,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
             "accounts/fireworks/models/deepseek-v3",
         ],
         hint: "хостинг open-source моделей",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "perplexity",
@@ -203,6 +261,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: false,
         models: &["sonar-pro", "sonar", "sonar-reasoning"],
         hint: "встроенный поиск в инференсе",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "cerebras",
@@ -215,22 +276,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: false,
         models: &["llama-3.3-70b", "llama-4-scout-17b-16e-instruct", "qwen-3-32b"],
         hint: "ультра-быстрый инференс на чипах cerebras",
-    },
-    LlmPreset {
-        id: "claudehub",
-        label: "ClaudeHub",
-        proto: "anthropic",
-        base_url: Some("https://api.claudehub.fun"),
-        default_model: "claude-sonnet-4.6",
-        default_api_key: None,
-        api_key_required: true,
-        custom: false,
-        models: &[
-            "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5",
-            "claude-sonnet-4.6", "claude-sonnet-4.5", "claude-haiku-4.5",
-            "gpt-5.5", "gpt-5.4",
-        ],
-        hint: "прокси для Anthropic / OpenAI · РФ, СБП, крипта",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "custom-openai",
@@ -243,6 +291,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: true,
         models: &[],
         hint: "укажи свой base URL и модель",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
     LlmPreset {
         id: "custom-anthropic",
@@ -255,6 +306,9 @@ pub const LLM_PRESETS: &[LlmPreset] = &[
         custom: true,
         models: &[],
         hint: "укажи свой base URL и модель",
+        recommended: false,
+        referral_url: None,
+        referral_label: None,
     },
 ];
 
@@ -437,6 +491,7 @@ pub const SLEEP_PRESETS: &[SleepPreset] = &[
     SleepPreset { id: "late", label: "сова", description: "02:00 — 11:00 · поздно ложится, поздно встаёт", from_h: 2, to_h: 11, wake_chance: 0.05 },
     SleepPreset { id: "early", label: "жаворонок", description: "22:00 — 07:00 · рано спать, рано на работу", from_h: 22, to_h: 7, wake_chance: 0.04 },
     SleepPreset { id: "owl", label: "не спит до утра", description: "04:00 — 13:00 · ночной образ жизни", from_h: 4, to_h: 13, wake_chance: 0.08 },
+    SleepPreset { id: "custom", label: "кастом", description: "задай свой режим сна", from_h: 0, to_h: 0, wake_chance: 0.0 },
 ];
 
 pub const PRIVACY_OPTIONS: &[(&str, &str, &str)] = &[

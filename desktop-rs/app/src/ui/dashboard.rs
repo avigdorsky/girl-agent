@@ -32,7 +32,9 @@ pub fn view(model: &Model) -> Element<'_, Message> {
         })
         .into();
 
-    if model.minimize_prompt_visible {
+    if model.profile_picker_visible {
+        stack![base, super::profile_picker::view(model)].into()
+    } else if model.minimize_prompt_visible {
         stack![base, super::minimize_popup::view(model)].into()
     } else {
         base
@@ -79,18 +81,30 @@ fn topbar(model: &Model) -> Element<'_, Message> {
     .spacing(8)
     .align_y(Alignment::Center);
 
-    let buttons = row![
-        button(text("свернуть").font(ONEST).size(13))
-            .on_press(Message::AskMinimize)
-            .style(styles::ghost_button),
-        button(text(if model.dashboard.paused { "▶ resume" } else { "⏸ pause" }).font(ONEST).size(13))
-            .on_press(Message::TogglePause)
-            .style(styles::ghost_button),
-        button(text("web ui").font(ONEST).size(13))
-            .on_press(Message::OpenWebUi)
-            .style(styles::primary_button),
-    ]
-    .spacing(8);
+    let mut buttons = row![].spacing(8);
+    if model.ctx.profiles.len() >= 2 {
+        buttons = buttons.push(
+            button(text("сменить профиль").font(ONEST).size(13))
+                .on_press(Message::OpenProfilePicker)
+                .style(styles::ghost_button),
+        );
+    }
+    buttons = buttons
+        .push(
+            button(text("свернуть").font(ONEST).size(13))
+                .on_press(Message::AskMinimize)
+                .style(styles::ghost_button),
+        )
+        .push(
+            button(text(if model.dashboard.paused { "▶ resume" } else { "⏸ pause" }).font(ONEST).size(13))
+                .on_press(Message::TogglePause)
+                .style(styles::ghost_button),
+        )
+        .push(
+            button(text("web ui").font(ONEST).size(13))
+                .on_press(Message::OpenWebUi)
+                .style(styles::primary_button),
+        );
 
     let row = row![
         brand,
@@ -118,7 +132,7 @@ fn identity_card(d: &DashboardState) -> Element<'_, Message> {
             p.name.clone(),
             format!("{} · {}{}", p.age, p.mode, if p.tz.is_empty() { String::new() } else { format!(" · {}", p.tz) }),
         ),
-        None => (String::from("(нет профиля)"), String::from("откройте инсталлер чтобы создать персону")),
+        None => (String::from("загружаем…"), String::from("если ничего не происходит — кликни «сменить профиль» в правом верхнем углу или запусти инсталлер ещё раз")),
     };
 
     let stage_label = d.stage.as_ref().map(|s| s.label.clone()).unwrap_or_else(|| String::from("—"));

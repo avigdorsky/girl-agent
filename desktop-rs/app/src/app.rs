@@ -45,6 +45,8 @@ pub enum Message {
     BotStarted(Result<(), String>),
     Refresh,
     SelectProfile(String),
+    OpenProfilePicker,
+    CloseProfilePicker,
     Noop,
 }
 
@@ -54,14 +56,27 @@ pub struct Model {
     pub command_input: String,
     pub minimize_prompt_visible: bool,
     pub minimize_remember: bool,
+    pub profile_picker_visible: bool,
 }
 
 impl Model {
     pub fn new(ctx: AppContext) -> (Self, Task<Message>) {
+        // Show the profile picker if we have 2+ profiles and no clear last
+        // choice — or if the saved last_profile no longer exists on disk.
+        let profile_count = ctx.profiles.len();
+        let last_exists = ctx
+            .settings
+            .last_profile
+            .as_ref()
+            .map(|slug| ctx.profiles.iter().any(|p| p.slug == *slug))
+            .unwrap_or(false);
+        let show_picker = profile_count >= 2 && !last_exists;
+
         let model = Self {
             minimize_remember: ctx.settings.remember_minimize_choice,
             command_input: String::new(),
             dashboard: DashboardState::default(),
+            profile_picker_visible: show_picker,
             ctx,
             minimize_prompt_visible: false,
         };
@@ -71,14 +86,11 @@ impl Model {
         let state = model.ctx.state.clone();
         let initial = Task::perform(async move { state.snapshot().await }, Message::DashboardTick);
 
-        // Auto-start bot if a last profile was remembered.
-        let auto_start = if model
-            .ctx
-            .settings
-            .last_profile
-            .as_ref()
-            .is_some()
-        {
+        // Auto-start bot only if we know which profile to load and we're not
+        // showing the picker.
+        let auto_start = if !show_picker && last_exists {
+            Task::done(Message::StartBot)
+        } else if !show_picker && profile_count == 1 {
             Task::done(Message::StartBot)
         } else {
             Task::none()
@@ -201,7 +213,17 @@ impl Model {
             Message::SelectProfile(slug) => {
                 self.ctx.settings.last_profile = Some(slug);
                 let _ = self.ctx.settings.save();
+                self.profile_picker_visible = false;
                 Task::done(Message::StartBot)
+            }
+            Message::OpenProfilePicker => {
+                refresh_profiles(&mut self.ctx);
+                self.profile_picker_visible = true;
+                Task::none()
+            }
+            Message::CloseProfilePicker => {
+                self.profile_picker_visible = false;
+                Task::none()
             }
             Message::Noop => Task::none(),
         }

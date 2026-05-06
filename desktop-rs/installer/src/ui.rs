@@ -27,6 +27,22 @@ use crate::data::{
 use crate::install::{InstallProgress, InstallStage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PasteTarget {
+    TgToken,
+    TgApiId,
+    TgApiHash,
+    TgPhone,
+    TgCode,
+    Tg2Fa,
+    LlmModel,
+    LlmKey,
+    LlmBaseUrl,
+    Name,
+    Notes,
+    TzQuery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
     Welcome,
     TgMode,
@@ -39,6 +55,7 @@ pub enum Step {
     LlmPicker,
     LlmConfig,
     Persona,
+    NameTournament,
     Style,
     Notes,
     Summary,
@@ -82,6 +99,15 @@ pub enum Msg {
     TzQueryChanged(String),
     TzSelected(String),
     SleepPresetChanged(String),
+    SleepCustomFromChanged(String),
+    SleepCustomToChanged(String),
+    SleepCustomChanceChanged(u8),
+
+    // Tournament
+    NameTournamentStart,
+    NameTournamentPick(String),
+    NameTournamentSkip,
+    NameTournamentRestart,
 
     // Style
     StageChanged(String),
@@ -90,6 +116,10 @@ pub enum Msg {
 
     // Notes
     NotesChanged(String),
+
+    // Clipboard paste (works with Russian keyboard layout)
+    PasteRequest(PasteTarget),
+    PasteContent(PasteTarget, Option<String>),
 
     // Install
     StartInstall,
@@ -174,7 +204,7 @@ fn current_main_index(s: Step) -> usize {
         TgMode | TgBotToken | TgUserbotSource | TgUserbotApi | TgUserbotPhone | TgUserbotCode
         | TgUserbot2Fa => 0,
         LlmPicker | LlmConfig => 1,
-        Persona => 2,
+        Persona | NameTournament => 2,
         Style => 3,
         Notes => 4,
         Summary => 5,
@@ -196,6 +226,7 @@ pub fn view(m: &Model) -> Element<'_, Msg> {
         Step::LlmPicker => llm_picker_view(&m.data),
         Step::LlmConfig => llm_config_view(&m.data),
         Step::Persona => persona_view(m),
+        Step::NameTournament => name_tournament_view(&m.data),
         Step::Style => style_view(&m.data),
         Step::Notes => notes_view(&m.data),
         Step::Summary => summary_view(&m.data),
@@ -309,13 +340,14 @@ fn tg_bot_token_view(d: &WizardData) -> Element<'_, Msg> {
         h2("token из @BotFather"),
         sub("открой telegram, напиши @BotFather → /newbot → следуй шагам. в конце он пришлёт строку вида 1234567890:AAH... — её сюда."),
         Space::with_height(14),
-        labelled_input(
+        labelled_input_with_paste(
             "bot token",
             text_input("1234567890:AA...", &d.tg_token)
                 .on_input(Msg::TgTokenChanged)
                 .padding(12)
                 .font(JETBRAINS)
                 .size(14),
+            PasteTarget::TgToken,
         ),
         Space::with_height(8),
         link_button("открыть @BotFather", "https://t.me/BotFather"),
@@ -353,20 +385,22 @@ fn tg_userbot_api_view(d: &WizardData) -> Element<'_, Msg> {
         h2("свои api_id / api_hash"),
         sub("регистрация на my.telegram.org → API development tools."),
         Space::with_height(14),
-        labelled_input(
+        labelled_input_with_paste(
             "api_id",
             text_input("12345678", &d.tg_api_id)
                 .on_input(Msg::TgApiIdChanged)
                 .padding(12)
                 .font(JETBRAINS),
+            PasteTarget::TgApiId,
         ),
         Space::with_height(8),
-        labelled_input(
+        labelled_input_with_paste(
             "api_hash",
             text_input("abcdef0123456789...", &d.tg_api_hash)
                 .on_input(Msg::TgApiHashChanged)
                 .padding(12)
                 .font(JETBRAINS),
+            PasteTarget::TgApiHash,
         ),
         Space::with_height(8),
         link_button("открыть my.telegram.org", "https://my.telegram.org/apps"),
@@ -384,12 +418,13 @@ fn tg_userbot_phone_view<'a>(d: &'a WizardData, status: &'a AsyncStatus) -> Elem
         h2("номер телефона"),
         sub("в международном формате: +79991234567. telegram пришлёт код в приложение."),
         Space::with_height(14),
-        labelled_input(
+        labelled_input_with_paste(
             "phone",
             text_input("+79991234567", &d.tg_phone)
                 .on_input(Msg::TgPhoneChanged)
                 .padding(12)
                 .font(JETBRAINS),
+            PasteTarget::TgPhone,
         ),
         Space::with_height(12),
         send_btn,
@@ -409,12 +444,13 @@ fn tg_userbot_code_view<'a>(d: &'a WizardData, status: &'a AsyncStatus) -> Eleme
         h2("код из telegram"),
         sub("приложение telegram прислало код. введи его сюда."),
         Space::with_height(14),
-        labelled_input(
+        labelled_input_with_paste(
             "код",
             text_input("12345", &d.tg_code)
                 .on_input(Msg::TgCodeChanged)
                 .padding(12)
                 .font(JETBRAINS),
+            PasteTarget::TgCode,
         ),
         Space::with_height(12),
         verify_btn,
@@ -434,13 +470,14 @@ fn tg_userbot_2fa_view<'a>(d: &'a WizardData, status: &'a AsyncStatus) -> Elemen
         h2("пароль two-step"),
         sub("на аккаунте включён cloud password. введи его."),
         Space::with_height(14),
-        labelled_input(
+        labelled_input_with_paste(
             "пароль",
             text_input("••••••••", &d.tg_2fa)
                 .on_input(Msg::Tg2FaChanged)
                 .padding(12)
                 .font(JETBRAINS)
                 .secure(true),
+            PasteTarget::Tg2Fa,
         ),
         Space::with_height(12),
         verify_btn,
@@ -464,7 +501,7 @@ fn llm_picker_view(d: &WizardData) -> Element<'_, Msg> {
         row_chunk.push(card);
         if row_chunk.len() == 2 || i + 1 == LLM_PRESETS.len() {
             let mut r = iced::widget::Row::new().spacing(8);
-            while let Some(c) = row_chunk.pop() {
+            for c in row_chunk.drain(..) {
                 r = r.push(c);
             }
             grid = grid.push(r);
@@ -475,8 +512,25 @@ fn llm_picker_view(d: &WizardData) -> Element<'_, Msg> {
 
 fn llm_card<'a>(p: &'a crate::data::LlmPreset, current: &str) -> Element<'a, Msg> {
     let active = p.id == current;
+    let badge: Element<'a, Msg> = if p.recommended {
+        container(text("рекомендуем").size(10).font(onest_bold()).color(BONE))
+            .padding(Padding::from([2, 8]))
+            .style(|_t| container::Style {
+                background: Some(Background::Color(ACCENT)),
+                border: Border { radius: 6.0.into(), ..Default::default() },
+                ..Default::default()
+            })
+            .into()
+    } else {
+        Space::new(0, 0).into()
+    };
     let label = column![
-        text(p.label).size(15).font(onest_bold()).color(INK),
+        row![
+            text(p.label).size(15).font(onest_bold()).color(INK),
+            Space::with_width(Length::Fill),
+            badge,
+        ]
+        .align_y(Alignment::Center),
         text(p.hint).size(12).color(MUTED).font(ONEST),
     ]
     .spacing(2);
@@ -528,24 +582,26 @@ fn llm_config_view(d: &WizardData) -> Element<'_, Msg> {
 
     let needs_base = preset.map(|p| p.custom).unwrap_or(false);
     if needs_base {
-        col = col.push(Space::with_height(8)).push(labelled_input(
+        col = col.push(Space::with_height(8)).push(labelled_input_with_paste(
             "base URL",
             text_input("https://api.example.com/v1", &d.llm_base_url)
                 .on_input(Msg::LlmBaseUrlChanged)
                 .padding(12)
                 .font(JETBRAINS),
+            PasteTarget::LlmBaseUrl,
         ));
     }
 
     let needs_key = preset.map(|p| p.api_key_required).unwrap_or(true);
     if needs_key {
-        col = col.push(Space::with_height(8)).push(labelled_input(
+        col = col.push(Space::with_height(8)).push(labelled_input_with_paste(
             "api key",
             text_input("sk-...", &d.llm_api_key)
                 .on_input(Msg::LlmKeyChanged)
                 .padding(12)
                 .font(JETBRAINS)
                 .secure(true),
+            PasteTarget::LlmKey,
         ));
     } else if let Some(p) = preset {
         col = col
@@ -555,7 +611,51 @@ fn llm_config_view(d: &WizardData) -> Element<'_, Msg> {
                 .color(MUTED)
                 .font(ONEST));
     }
+
+    if let Some(p) = preset {
+        if let (Some(url), Some(label)) = (p.referral_url, p.referral_label) {
+            col = col
+                .push(Space::with_height(14))
+                .push(referral_card(p.label, label, url));
+        }
+    }
+
     col.into()
+}
+
+fn referral_card(provider: &'static str, label: &'static str, url: &'static str) -> Element<'static, Msg> {
+    container(
+        column![
+            row![
+                text("у тебя ещё нет ключа?").size(12).font(onest_medium()).color(INK),
+                Space::with_width(Length::Fill),
+                text("реферал").size(10).font(onest_bold()).color(BONE),
+            ].align_y(Alignment::Center),
+            Space::with_height(4),
+            text(format!(
+                "нажми кнопку, зарегайся на {}, оплати любым удобным способом — и получишь бонус ($) на счёт.",
+                provider
+            )).size(12).color(MUTED).font(ONEST),
+            Space::with_height(8),
+            button(text(label).size(13).font(onest_bold()).color(BONE))
+                .on_press(Msg::OpenLink(url))
+                .padding(Padding::from([10, 16]))
+                .style(|_t, _s| button::Style {
+                    background: Some(Background::Color(ACCENT)),
+                    text_color: BONE,
+                    border: Border { radius: RADIUS_MD.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+        ]
+        .spacing(0),
+    )
+    .padding(Padding::from([12, 14]))
+    .style(|_t| container::Style {
+        background: Some(Background::Color(BONE2)),
+        border: Border { color: ACCENT, width: 1.5, radius: RADIUS_MD.into() },
+        ..Default::default()
+    })
+    .into()
 }
 
 fn persona_view(m: &Model) -> Element<'_, Msg> {
@@ -589,11 +689,13 @@ fn persona_view(m: &Model) -> Element<'_, Msg> {
 
     let manual = matches!(d.name_mode, NameMode::Manual);
 
-    column![
-        h2("персона"),
-        sub("основное о девушке: национальность, имя, возраст, часовой пояс, режим сна. это можно менять и потом."),
-        Space::with_height(14),
-        labelled_input(
+    let mut col = Column::new().spacing(0);
+    col = col
+        .push(h2("персона"))
+        .push(sub("основное о девушке: национальность, часовой пояс, имя, возраст, режим сна. потом всё ещё можно менять."))
+        .push(Space::with_height(14))
+        // 1) Nationality first
+        .push(labelled_input(
             "национальность",
             pick_list(nat_options, nat_selected, |label| {
                 let id = NATIONALITIES
@@ -605,46 +707,10 @@ fn persona_view(m: &Model) -> Element<'_, Msg> {
             })
             .width(Length::Fill)
             .padding(10),
-        ),
-        Space::with_height(10),
-        column![
-            row![
-                text("имя").size(12).color(MUTED).font(onest_medium()),
-                Space::with_width(Length::Fill),
-                small_choice_chip("случайное", !manual, Msg::NameModeChanged(NameMode::Random)),
-                Space::with_width(6),
-                small_choice_chip("вручную", manual, Msg::NameModeChanged(NameMode::Manual)),
-            ]
-            .align_y(Alignment::Center),
-            Space::with_height(6),
-            row![
-                text_input("Аня", &d.name)
-                    .on_input(Msg::NameChanged)
-                    .padding(12)
-                    .font(JETBRAINS)
-                    .size(14),
-                Space::with_width(8),
-                name_random_btn,
-            ]
-            .align_y(Alignment::Center),
-        ],
-        Space::with_height(10),
-        column![
-            row![
-                text("возраст").size(12).color(MUTED).font(onest_medium()),
-                Space::with_width(Length::Fill),
-                text(format!("{}", d.age)).size(20).font(onest_bold()).color(ACCENT),
-            ]
-            .align_y(Alignment::Center),
-            slider(14u8..=99u8, d.age, Msg::AgeChanged).step(1u8),
-            row![
-                text("14").size(11).color(MUTED).font(ONEST),
-                Space::with_width(Length::Fill),
-                text("99").size(11).color(MUTED).font(ONEST),
-            ],
-        ],
-        Space::with_height(10),
-        column![
+        ))
+        .push(Space::with_height(10))
+        // 2) Timezone moved up so its dropdown has room below
+        .push(column![
             text("часовой пояс").size(12).color(MUTED).font(onest_medium()),
             Space::with_height(4),
             text_input("поиск: москва / kyiv / +5 …", &m.tz_query)
@@ -667,9 +733,57 @@ fn persona_view(m: &Model) -> Element<'_, Msg> {
             .placeholder("выбери из списка")
             .width(Length::Fill)
             .padding(10),
-        ],
-        Space::with_height(10),
-        labelled_input(
+        ])
+        .push(Space::with_height(10))
+        // 3) Name (with random/manual chips + dice + tournament)
+        .push(column![
+            row![
+                text("имя").size(12).color(MUTED).font(onest_medium()),
+                Space::with_width(Length::Fill),
+                small_choice_chip("случайное", matches!(d.name_mode, NameMode::Random), Msg::NameModeChanged(NameMode::Random)),
+                Space::with_width(6),
+                small_choice_chip("вручную", manual, Msg::NameModeChanged(NameMode::Manual)),
+                Space::with_width(6),
+                small_choice_chip("турнир", matches!(d.name_mode, NameMode::Tournament), Msg::NameModeChanged(NameMode::Tournament)),
+            ]
+            .align_y(Alignment::Center),
+            Space::with_height(6),
+            row![
+                text_input("Аня", &d.name)
+                    .on_input(Msg::NameChanged)
+                    .padding(12)
+                    .font(JETBRAINS)
+                    .size(14),
+                Space::with_width(8),
+                name_random_btn,
+            ]
+            .align_y(Alignment::Center),
+            Space::with_height(4),
+            text(if matches!(d.name_mode, NameMode::Tournament) {
+                "режим «турнир» спросит пары имён на следующем экране"
+            } else {
+                ""
+            }).size(11).color(MUTED).font(ONEST),
+        ])
+        .push(Space::with_height(10))
+        // 4) Age
+        .push(column![
+            row![
+                text("возраст").size(12).color(MUTED).font(onest_medium()),
+                Space::with_width(Length::Fill),
+                text(format!("{}", d.age)).size(20).font(onest_bold()).color(ACCENT),
+            ]
+            .align_y(Alignment::Center),
+            slider(14u8..=99u8, d.age, Msg::AgeChanged).step(1u8),
+            row![
+                text("14").size(11).color(MUTED).font(ONEST),
+                Space::with_width(Length::Fill),
+                text("99").size(11).color(MUTED).font(ONEST),
+            ],
+        ])
+        .push(Space::with_height(10))
+        // 5) Sleep preset
+        .push(labelled_input(
             "режим сна",
             pick_list(sleep_options, sleep_selected, |label| {
                 let id = SLEEP_PRESETS
@@ -681,10 +795,57 @@ fn persona_view(m: &Model) -> Element<'_, Msg> {
             })
             .width(Length::Fill)
             .padding(10),
-        ),
-    ]
-    .spacing(0)
-    .into()
+        ));
+
+    // 5b) Sleep custom inline editor
+    if d.sleep_preset == "custom" {
+        let hours: Vec<String> = (0..24).map(|h| format!("{:02}:00", h)).collect();
+        let from_sel = Some(format!("{:02}:00", d.sleep_custom_from));
+        let to_sel = Some(format!("{:02}:00", d.sleep_custom_to));
+        col = col
+            .push(Space::with_height(10))
+            .push(container(column![
+                text("свой режим сна").size(12).color(MUTED).font(onest_medium()),
+                Space::with_height(8),
+                row![
+                    column![
+                        text("ложится в").size(11).color(MUTED).font(ONEST),
+                        Space::with_height(2),
+                        pick_list(hours.clone(), from_sel, Msg::SleepCustomFromChanged)
+                            .width(Length::Fill).padding(8),
+                    ].width(Length::FillPortion(1)),
+                    Space::with_width(10),
+                    column![
+                        text("встаёт в").size(11).color(MUTED).font(ONEST),
+                        Space::with_height(2),
+                        pick_list(hours, to_sel, Msg::SleepCustomToChanged)
+                            .width(Length::Fill).padding(8),
+                    ].width(Length::FillPortion(1)),
+                ]
+                .align_y(Alignment::Start),
+                Space::with_height(10),
+                row![
+                    text("шанс ночного пробуждения").size(11).color(MUTED).font(ONEST),
+                    Space::with_width(Length::Fill),
+                    text(format!("{}%", d.sleep_custom_wake_chance))
+                        .size(14).font(onest_bold()).color(ACCENT),
+                ].align_y(Alignment::Center),
+                slider(0u8..=50u8, d.sleep_custom_wake_chance, Msg::SleepCustomChanceChanged).step(1u8),
+                row![
+                    text("0% спит крепко").size(10).color(MUTED).font(ONEST),
+                    Space::with_width(Length::Fill),
+                    text("50% полупроснувшаяся").size(10).color(MUTED).font(ONEST),
+                ],
+            ].spacing(0))
+            .padding(12)
+            .style(|_t| container::Style {
+                background: Some(Background::Color(BONE2)),
+                border: Border { color: LINE, width: 1.0, radius: RADIUS_MD.into() },
+                ..Default::default()
+            }));
+    }
+
+    col.into()
 }
 
 fn style_view(d: &WizardData) -> Element<'_, Msg> {
@@ -780,14 +941,91 @@ fn notes_view(d: &WizardData) -> Element<'_, Msg> {
         h2("заметки про персонажа"),
         sub("кратко: чем занимается, чем интересуется, как любит общаться. это попадёт в long-term.md и speech.md. можно пропустить."),
         Space::with_height(14),
-        text_input("работает дизайнером, любит лоу-фай, играет в FromSoftware…", &d.persona_notes)
-            .on_input(Msg::NotesChanged)
-            .padding(14)
-            .font(ONEST)
-            .size(14),
+        labelled_input_with_paste(
+            "заметки",
+            text_input("работает дизайнером, любит лоу-фай, играет в FromSoftware…", &d.persona_notes)
+                .on_input(Msg::NotesChanged)
+                .padding(14)
+                .font(ONEST)
+                .size(14),
+            PasteTarget::Notes,
+        ),
     ]
     .spacing(0)
     .into()
+}
+
+fn name_tournament_view(d: &WizardData) -> Element<'_, Msg> {
+    use crate::config::TournamentPhase;
+    let total_quals = 20u32; // mirrors TS const TOURNAMENT_ROUNDS
+    let phase_label: String = match d.tournament_phase {
+        TournamentPhase::Idle => "готов?".into(),
+        TournamentPhase::Quals => format!("квалификация {} / {}", d.tournament_round + 1, total_quals),
+        TournamentPhase::Knockout => format!("финал · осталось {}", d.tournament_pool.len()),
+    };
+    let qualifiers_text = if d.tournament_qualifiers.is_empty() {
+        "—".to_string()
+    } else {
+        d.tournament_qualifiers.join(", ")
+    };
+
+    let mut col = Column::new().spacing(0);
+    col = col
+        .push(h2("турнир имён"))
+        .push(sub("выбираешь интуитивно из пары — в конце останется одно. имя можно поменять и потом."))
+        .push(Space::with_height(14))
+        .push(text(phase_label).size(14).font(onest_bold()).color(ACCENT));
+
+    if matches!(d.tournament_phase, TournamentPhase::Idle) {
+        col = col
+            .push(Space::with_height(12))
+            .push(text("на каждом раунде показываем 2 имени — выбирай то, которое нравится больше. \"мимо\" — пропустить пару.")
+                .size(13).color(MUTED).font(ONEST))
+            .push(Space::with_height(16))
+            .push(primary_button("начать турнир", Msg::NameTournamentStart));
+    } else {
+        let a = d.tournament_pair.0.clone();
+        let b = d.tournament_pair.1.clone();
+        col = col
+            .push(Space::with_height(16))
+            .push(row![
+                tournament_choice(&a),
+                Space::with_width(12),
+                tournament_choice(&b),
+            ])
+            .push(Space::with_height(12))
+            .push(row![
+                button(text("мимо · следующая пара").size(13).font(onest_medium()).color(INK))
+                    .on_press(Msg::NameTournamentSkip)
+                    .padding(Padding::from([8, 16]))
+                    .style(|_t, _s| ghost_button_style()),
+                Space::with_width(8),
+                button(text("начать заново").size(13).font(onest_medium()).color(MUTED))
+                    .on_press(Msg::NameTournamentRestart)
+                    .padding(Padding::from([8, 16]))
+                    .style(|_t, _s| ghost_button_style()),
+            ])
+            .push(Space::with_height(12))
+            .push(text(format!("прошли в финал: {}", qualifiers_text)).size(11).color(MUTED).font(ONEST));
+    }
+
+    col.into()
+}
+
+fn tournament_choice(name: &str) -> Element<'static, Msg> {
+    let name = name.to_string();
+    let display = if name.is_empty() { "—".into() } else { name.clone() };
+    button(text(display).size(28).font(onest_bold()).color(INK))
+        .on_press(Msg::NameTournamentPick(name))
+        .padding(Padding::from([24, 12]))
+        .width(Length::Fill)
+        .style(|_t, _s| button::Style {
+            background: Some(Background::Color(BONE2)),
+            text_color: INK,
+            border: Border { color: LINE, width: 1.5, radius: RADIUS_MD.into() },
+            ..Default::default()
+        })
+        .into()
 }
 
 fn summary_view(d: &WizardData) -> Element<'_, Msg> {
@@ -824,13 +1062,53 @@ fn summary_view(d: &WizardData) -> Element<'_, Msg> {
 
 fn installing_view(m: &Model) -> Element<'_, Msg> {
     let pct = (m.install_progress.fraction.clamp(0.0, 1.0) * 100.0) as u32;
+    let stage = m.install_progress.stage;
+    let stages: [(InstallStage, &str); 4] = [
+        (InstallStage::UnpackNode, "node.exe"),
+        (InstallStage::UnpackRuntime, "cli.js + зависимости"),
+        (InstallStage::WriteConfig, "профиль и персона"),
+        (InstallStage::Done, "готово"),
+    ];
+    let mut steps_col = Column::new().spacing(8);
+    for (s, label) in stages.iter() {
+        let done = stage_index(*s) <= stage_index(stage) && stage_index(stage) > stage_index(*s)
+            || (stage_index(*s) <= stage_index(stage) && stage == InstallStage::Done);
+        let active = *s == stage && stage != InstallStage::Done;
+        let dot_color = if done {
+            ACCENT2
+        } else if active {
+            ACCENT
+        } else {
+            LINE
+        };
+        let mark = if done { "✓" } else if active { "●" } else { "○" };
+        let label_color = if done || active { INK } else { MUTED };
+        steps_col = steps_col.push(
+            row![
+                container(text(mark).size(13).font(onest_bold()).color(BONE))
+                    .width(Length::Fixed(20.0))
+                    .height(Length::Fixed(20.0))
+                    .center_x(Length::Fixed(20.0))
+                    .center_y(Length::Fixed(20.0))
+                    .style(move |_t| container::Style {
+                        background: Some(Background::Color(dot_color)),
+                        border: Border { radius: 10.0.into(), ..Default::default() },
+                        ..Default::default()
+                    }),
+                Space::with_width(10),
+                text((*label).to_string()).size(13).font(onest_medium()).color(label_color),
+            ]
+            .align_y(Alignment::Center),
+        );
+    }
+
     column![
-        Space::with_height(60),
+        Space::with_height(40),
         text("устанавливаем girl-agent")
             .size(28)
             .font(onest_bold())
             .color(INK),
-        Space::with_height(8),
+        Space::with_height(6),
         text(&m.install_progress.note).size(14).color(MUTED).font(ONEST),
         Space::with_height(20),
         progress_bar(0.0..=1.0, m.install_progress.fraction.clamp(0.0, 1.0))
@@ -843,10 +1121,12 @@ fn installing_view(m: &Model) -> Element<'_, Msg> {
                     ..Default::default()
                 },
             }),
-        Space::with_height(8),
-        text(format!("{}%", pct)).size(14).color(MUTED).font(JETBRAINS),
+        Space::with_height(6),
+        text(format!("{}%", pct)).size(13).color(MUTED).font(JETBRAINS),
+        Space::with_height(24),
+        steps_col,
         Space::with_height(20),
-        text("распакуем portable-node, cli и зависимости в %APPDATA%\\girl-agent\\runtime, потом сохраним профиль и можно стартовать.")
+        text("распакуем portable-node, cli и зависимости в %APPDATA%\\girl-agent\\runtime, потом сгенерируем папку с профилем и персоной.")
             .size(12)
             .color(MUTED)
             .font(instrument_italic()),
@@ -854,6 +1134,16 @@ fn installing_view(m: &Model) -> Element<'_, Msg> {
     .align_x(Alignment::Center)
     .spacing(0)
     .into()
+}
+
+fn stage_index(s: InstallStage) -> u8 {
+    match s {
+        InstallStage::Start => 0,
+        InstallStage::UnpackNode => 1,
+        InstallStage::UnpackRuntime => 2,
+        InstallStage::WriteConfig => 3,
+        InstallStage::Done => 4,
+    }
 }
 
 fn done_view(m: &Model) -> Element<'_, Msg> {
@@ -960,6 +1250,7 @@ fn can_advance(m: &Model) -> bool {
         LlmPicker => !d.llm_preset.is_empty(),
         LlmConfig => d.is_llm_valid(),
         Persona => !d.name.trim().is_empty() && !d.tz.is_empty(),
+        NameTournament => !d.name.trim().is_empty(),
         Style => true,
         Notes => true,
         Summary => true,
@@ -997,6 +1288,33 @@ fn labelled_input<'a, M: 'a>(
     let label: String = label.into();
     column![
         text(label).size(12).color(MUTED).font(onest_medium()),
+        Space::with_height(4),
+        inner.into(),
+    ]
+    .spacing(0)
+    .into()
+}
+
+/// Text input + a "📋 вставить" button that explicitly reads the clipboard.
+/// The button works regardless of keyboard layout (iced's built-in Ctrl+V
+/// shortcut only matches the Latin "v", which fails on Cyrillic layouts).
+pub fn labelled_input_with_paste<'a>(
+    label: impl Into<String>,
+    inner: impl Into<Element<'a, Msg>>,
+    target: PasteTarget,
+) -> Element<'a, Msg> {
+    let label: String = label.into();
+    let paste_btn = button(text("вставить").size(11).font(onest_medium()).color(MUTED))
+        .on_press(Msg::PasteRequest(target))
+        .padding(Padding::from([6, 12]))
+        .style(|_t, _s| ghost_button_style());
+    column![
+        row![
+            text(label).size(12).color(MUTED).font(onest_medium()),
+            Space::with_width(Length::Fill),
+            paste_btn,
+        ]
+        .align_y(Alignment::Center),
         Space::with_height(4),
         inner.into(),
     ]

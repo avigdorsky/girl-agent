@@ -317,6 +317,55 @@ impl App {
                 self.model.data.sleep_preset = v;
                 Task::none()
             }
+            Msg::SleepCustomFromChanged(v) => {
+                if let Some(h) = parse_hour(&v) {
+                    self.model.data.sleep_custom_from = h;
+                }
+                Task::none()
+            }
+            Msg::SleepCustomToChanged(v) => {
+                if let Some(h) = parse_hour(&v) {
+                    self.model.data.sleep_custom_to = h;
+                }
+                Task::none()
+            }
+            Msg::SleepCustomChanceChanged(v) => {
+                self.model.data.sleep_custom_wake_chance = v.min(100);
+                Task::none()
+            }
+
+            // Tournament
+            Msg::NameTournamentStart => {
+                tournament_start(&mut self.model.data);
+                Task::none()
+            }
+            Msg::NameTournamentPick(name) => {
+                tournament_pick(&mut self.model.data, &name);
+                Task::none()
+            }
+            Msg::NameTournamentSkip => {
+                tournament_skip(&mut self.model.data);
+                Task::none()
+            }
+            Msg::NameTournamentRestart => {
+                tournament_start(&mut self.model.data);
+                Task::none()
+            }
+
+            // Clipboard paste (works regardless of keyboard layout — explicit
+            // button avoids relying on Ctrl+V which iced binds to the Latin
+            // "v" only).
+            Msg::PasteRequest(target) => {
+                iced::clipboard::read().map(move |s| Msg::PasteContent(target, s))
+            }
+            Msg::PasteContent(target, content) => {
+                let value = match content {
+                    Some(s) => s,
+                    None => return Task::none(),
+                };
+                paste_into(&mut self.model.data, &mut self.model.tz_query, target, value);
+                Task::none()
+            }
 
             // Style
             Msg::StageChanged(v) => {
@@ -431,7 +480,14 @@ fn next_step(s: Step, d: &WizardData) -> Step {
         TgUserbot2Fa => LlmPicker,
         LlmPicker => LlmConfig,
         LlmConfig => Persona,
-        Persona => Style,
+        Persona => {
+            if matches!(d.name_mode, NameMode::Tournament) {
+                NameTournament
+            } else {
+                Style
+            }
+        }
+        NameTournament => Style,
         Style => Notes,
         Notes => Summary,
         Summary => Installing,
@@ -465,7 +521,14 @@ fn prev_step(s: Step, d: &WizardData) -> Step {
         }
         LlmConfig => LlmPicker,
         Persona => LlmConfig,
-        Style => Persona,
+        NameTournament => Persona,
+        Style => {
+            if matches!(d.name_mode, NameMode::Tournament) {
+                NameTournament
+            } else {
+                Persona
+            }
+        }
         Notes => Style,
         Summary => Notes,
         Installing => Summary,
@@ -542,4 +605,164 @@ fn launch_desktop_app() -> std::io::Result<()> {
 #[allow(dead_code)]
 fn unused_imports_silencer() {
     let _ = (find_llm_preset, search_tz, NAMES_RU, NAMES_UA);
+}
+
+fn parse_hour(label: &str) -> Option<u8> {
+    label.split(':').next().and_then(|h| h.parse::<u8>().ok())
+}
+
+fn paste_into(
+    d: &mut WizardData,
+    tz_query: &mut String,
+    target: ui::PasteTarget,
+    value: String,
+) {
+    use ui::PasteTarget::*;
+    let trimmed = value.trim().to_string();
+    match target {
+        TgToken => d.tg_token = trimmed,
+        TgApiId => d.tg_api_id = trimmed,
+        TgApiHash => d.tg_api_hash = trimmed,
+        TgPhone => d.tg_phone = trimmed,
+        TgCode => d.tg_code = trimmed,
+        Tg2Fa => d.tg_2fa = trimmed,
+        LlmModel => d.llm_model = trimmed,
+        LlmKey => d.llm_api_key = trimmed,
+        LlmBaseUrl => d.llm_base_url = trimmed,
+        Name => {
+            d.name = trimmed;
+            d.name_mode = NameMode::Manual;
+            d.refresh_slug();
+        }
+        Notes => d.persona_notes = value,
+        TzQuery => *tz_query = trimmed,
+    }
+}
+
+// =====================================================================
+// Tournament name picker — mirrors src/wizard/index.tsx (lines 518–644).
+// =====================================================================
+
+const TOURNAMENT_QUALS: u32 = 20;
+
+fn tournament_pool(d: &WizardData) -> Vec<&'static str> {
+    let pool: &[&str] = if d.nationality == "UA" { NAMES_UA } else { NAMES_RU };
+    pool.iter().copied().collect()
+}
+
+fn tournament_start(d: &mut WizardData) {
+    use crate::config::TournamentPhase;
+    let pool = tournament_pool(d);
+    d.tournament_round = 0;
+    d.tournament_qualifiers.clear();
+    d.tournament_seen.clear();
+    d.tournament_pool = pool.iter().map(|s| s.to_string()).collect();
+    d.tournament_phase = TournamentPhase::Quals;
+    tournament_next_pair(d);
+}
+
+fn tournament_next_pair(d: &mut WizardData) {
+    use crate::config::TournamentPhase;
+    match d.tournament_phase {
+        TournamentPhase::Idle => {}
+        TournamentPhase::Quals => {
+            if d.tournament_round >= TOURNAMENT_QUALS {
+                tournament_promote_to_knockout(d);
+                return;
+            }
+            let pair = pick_unseen_pair(&d.tournament_pool, &d.tournament_seen);
+            match pair {
+                Some((a, b)) => {
+                    d.tournament_seen.push(a.clone());
+                    d.tournament_seen.push(b.clone());
+                    d.tournament_pair = (a, b);
+                }
+                None => {
+                    tournament_promote_to_knockout(d);
+                }
+            }
+        }
+        TournamentPhase::Knockout => {
+            if d.tournament_pool.len() <= 1 {
+                if let Some(winner) = d.tournament_pool.first().cloned() {
+                    d.name = winner;
+                    d.name_mode = NameMode::Tournament;
+                    d.refresh_slug();
+                }
+                d.tournament_phase = TournamentPhase::Idle;
+                d.tournament_pair = (String::new(), String::new());
+                return;
+            }
+            let a = d.tournament_pool.remove(0);
+            let b = d.tournament_pool.remove(0);
+            d.tournament_pair = (a, b);
+        }
+    }
+}
+
+fn tournament_promote_to_knockout(d: &mut WizardData) {
+    use crate::config::TournamentPhase;
+    if d.tournament_qualifiers.is_empty() {
+        // No qualifiers? fall back to a single random name.
+        let seed: u64 = rand::thread_rng().gen();
+        d.name = pick_random_name(&d.nationality, seed).to_string();
+        d.name_mode = NameMode::Tournament;
+        d.refresh_slug();
+        d.tournament_phase = TournamentPhase::Idle;
+        d.tournament_pair = (String::new(), String::new());
+        return;
+    }
+    if d.tournament_qualifiers.len() == 1 {
+        d.name = d.tournament_qualifiers[0].clone();
+        d.name_mode = NameMode::Tournament;
+        d.refresh_slug();
+        d.tournament_phase = TournamentPhase::Idle;
+        d.tournament_pair = (String::new(), String::new());
+        return;
+    }
+    d.tournament_pool = d.tournament_qualifiers.clone();
+    d.tournament_qualifiers.clear();
+    d.tournament_phase = TournamentPhase::Knockout;
+    tournament_next_pair(d);
+}
+
+fn pick_unseen_pair(pool: &[String], seen: &[String]) -> Option<(String, String)> {
+    let candidates: Vec<&String> = pool.iter().filter(|n| !seen.contains(n)).collect();
+    if candidates.len() < 2 {
+        return None;
+    }
+    let mut rng = rand::thread_rng();
+    use rand::seq::SliceRandom;
+    let mut shuffled = candidates.clone();
+    shuffled.shuffle(&mut rng);
+    Some((shuffled[0].clone(), shuffled[1].clone()))
+}
+
+fn tournament_pick(d: &mut WizardData, name: &str) {
+    use crate::config::TournamentPhase;
+    if name.is_empty() {
+        return;
+    }
+    match d.tournament_phase {
+        TournamentPhase::Quals => {
+            if !d.tournament_qualifiers.iter().any(|n| n == name) {
+                d.tournament_qualifiers.push(name.to_string());
+            }
+            d.tournament_round += 1;
+            tournament_next_pair(d);
+        }
+        TournamentPhase::Knockout => {
+            d.tournament_pool.push(name.to_string());
+            tournament_next_pair(d);
+        }
+        TournamentPhase::Idle => {}
+    }
+}
+
+fn tournament_skip(d: &mut WizardData) {
+    use crate::config::TournamentPhase;
+    if matches!(d.tournament_phase, TournamentPhase::Quals) {
+        d.tournament_round += 1;
+    }
+    tournament_next_pair(d);
 }

@@ -108,8 +108,8 @@ pub fn run(data: &WizardData, progress: Sender<InstallProgress>) -> Result<Insta
 
     let _ = progress.send(InstallProgress {
         stage: InstallStage::WriteConfig,
-        fraction: 0.92,
-        note: "сохраняю профиль…".into(),
+        fraction: 0.78,
+        note: "создаю папку профиля…".into(),
     });
 
     let cfg = build_config_json(data);
@@ -119,13 +119,36 @@ pub fn run(data: &WizardData, progress: Sender<InstallProgress>) -> Result<Insta
     let profile_dir = data_root.join(&data.slug);
     fs::create_dir_all(&profile_dir)
         .with_context(|| format!("create {}", profile_dir.display()))?;
+    log.push_str(&format!("created profile dir: {}\n", profile_dir.display()));
+
+    let _ = progress.send(InstallProgress {
+        stage: InstallStage::WriteConfig,
+        fraction: 0.86,
+        note: "пишу персону…".into(),
+    });
+
     let config_path = profile_dir.join("config.json");
     fs::write(&config_path, serde_json::to_string_pretty(&cfg)?)?;
     log.push_str(&format!("wrote {}\n", config_path.display()));
 
+    // Sanity-check: make sure `list_profiles()` will pick this up. If the slug
+    // is corrupt or the file unreadable we want to fail hard here, not later.
+    let read_back = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("read back {}", config_path.display()))?;
+    let _: serde_json::Value = serde_json::from_str(&read_back)
+        .with_context(|| "config.json round-trip failed")?;
+    log.push_str("verified config.json round-trip\n");
+
+    let _ = progress.send(InstallProgress {
+        stage: InstallStage::WriteConfig,
+        fraction: 0.95,
+        note: "сохраняю выбор профиля…".into(),
+    });
+
     let mut s = girl_agent_shared::settings::Settings::load();
     s.last_profile = Some(data.slug.clone());
-    let _ = s.save();
+    s.save().with_context(|| "save settings.json")?;
+    log.push_str(&format!("saved last_profile = {}\n", data.slug));
 
     let _ = progress.send(InstallProgress {
         stage: InstallStage::Done,
@@ -188,7 +211,17 @@ fn build_config_json(d: &WizardData) -> Value {
         "model": d.llm_model,
     });
 
-    json!({
+    let sleep_custom = if d.sleep_preset == "custom" {
+        Some(json!({
+            "fromHour": d.sleep_custom_from,
+            "toHour": d.sleep_custom_to,
+            "wakeChance": (d.sleep_custom_wake_chance as f64) / 100.0,
+        }))
+    } else {
+        None
+    };
+
+    let mut profile = json!({
         "slug": d.slug,
         "name": d.name,
         "age": d.age,
@@ -205,7 +238,13 @@ fn build_config_json(d: &WizardData) -> Value {
         "telegram": telegram,
         "vibe": "warm",
         "notifications": "normal",
-    })
+    });
+    if let Some(custom) = sleep_custom {
+        if let Some(obj) = profile.as_object_mut() {
+            obj.insert("sleepCustom".into(), custom);
+        }
+    }
+    profile
 }
 
 #[allow(dead_code)]
