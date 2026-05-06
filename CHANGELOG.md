@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 — npm publish automation
+
+Дата: 2026-05-06
+
+- Добавлен GitHub Actions workflow для публикации пакета в npm по тегу `v*`.
+- Добавлено правило релиза: каждая публичная обнова должна менять версию в `package.json`/`package-lock.json` и добавлять запись в changelog.
+
 ## 0.1.3 — Telegram formatting fix
 
 Дата: 2026-05-05
