@@ -3,6 +3,8 @@
 //! Boots tracing, the local Web UI server, the bot supervisor, then hands
 //! control to iced.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod state;
 mod supervisor;

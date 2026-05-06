@@ -5,6 +5,8 @@
 //! writes a profile config. The desktop app picks the new profile up
 //! automatically on next launch.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod config;
 mod data;
 mod install;
