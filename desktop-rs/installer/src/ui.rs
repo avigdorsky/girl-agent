@@ -234,63 +234,23 @@ pub fn view(m: &Model) -> Element<'_, Msg> {
 
 fn progress_header(step: Step) -> Element<'static, Msg> {
     let idx = current_main_index(step);
-    let mut blobs: Vec<Element<'static, Msg>> = Vec::new();
-    for (i, (_, label)) in MAIN_STEPS.iter().enumerate() {
-        let active = i == idx;
-        let done = i < idx;
-        let dot_color = if active {
-            ACCENT
-        } else if done {
-            ACCENT2
-        } else {
-            LINE
-        };
-        let label_color = if active { INK } else { MUTED };
-        let dot: Element<'static, Msg> = container(Space::new(10, 10))
-            .width(10)
-            .height(10)
-            .style(move |_t| container::Style {
-                background: Some(Background::Color(dot_color)),
-                border: Border {
-                    radius: 5.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .into();
-        let chip = column![
-            dot,
-            text(label.to_string())
-                .size(11)
-                .color(label_color)
-                .font(onest_medium()),
+    let total = MAIN_STEPS.len();
+    let label = MAIN_STEPS
+        .get(idx)
+        .map(|(_, l)| l.to_string())
+        .unwrap_or_else(|| "...".into());
+    let counter = format!("шаг {} из {}", idx + 1, total);
+    container(
+        row![
+            text(counter).size(12).color(MUTED).font(onest_medium()),
+            Space::with_width(12),
+            text(label).size(12).color(ACCENT).font(onest_bold()),
         ]
-        .spacing(4)
-        .align_x(Alignment::Center);
-        blobs.push(chip.into());
-        if i + 1 < MAIN_STEPS.len() {
-            let bar_color = if i < idx { ACCENT2 } else { LINE };
-            let bar: Element<'static, Msg> = container(Space::new(Length::Fill, 2))
-                .width(Length::Fill)
-                .height(2)
-                .style(move |_t| container::Style {
-                    background: Some(Background::Color(bar_color)),
-                    ..Default::default()
-                })
-                .into();
-            blobs.push(
-                container(bar)
-                    .width(Length::Fill)
-                    .padding(Padding::from([16, 8]))
-                    .into(),
-            );
-        }
-    }
-    let row = iced::widget::Row::with_children(blobs).align_y(Alignment::Center);
-    container(row)
-        .width(Length::Fill)
-        .padding(Padding::from([4, 0]))
-        .into()
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::from([4, 0]))
+    .into()
 }
 
 // =====================================================================

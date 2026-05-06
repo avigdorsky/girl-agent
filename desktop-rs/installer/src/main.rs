@@ -6,7 +6,9 @@
 //! `npm` / `npx` is required on the target machine — everything lives
 //! inside this single .exe.
 
-#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+// Keep the console attached on Windows for now so panics are visible.
+// Re-enable `windows_subsystem = "windows"` once the wizard is stable.
+// #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
 mod data;
@@ -28,6 +30,7 @@ use crate::install::{InstallProgress, InstallStage};
 use crate::ui::{InstallOutcome, Msg, Step, TgAuthSuccess, TgVerifyOutcome};
 
 fn main() -> iced::Result {
+    install_panic_hook();
     init_tracing();
 
     iced::application("girl-agent installer", App::update, App::view)
@@ -476,6 +479,38 @@ fn window_settings() -> iced::window::Settings {
         min_size: Some(iced::Size::new(720.0, 600.0)),
         ..iced::window::Settings::default()
     }
+}
+
+fn install_panic_hook() {
+    let log_dir = girl_agent_shared::paths::app_log_dir();
+    let log_path = log_dir.join("installer-crash.log");
+    let log_path2 = log_path.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let msg = format!(
+            "[{}] PANIC at {}\n{}\nbacktrace:\n{}\n\n",
+            chrono::Utc::now().to_rfc3339(),
+            info.location()
+                .map(|l| format!("{}:{}", l.file(), l.line()))
+                .unwrap_or_else(|| "<unknown>".into()),
+            info,
+            backtrace,
+        );
+        eprintln!("{msg}");
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = f.write_all(msg.as_bytes());
+            let _ = f.flush();
+        }
+    }));
+    eprintln!("girl-agent installer · crash log: {}", log_path2.display());
 }
 
 fn init_tracing() {
