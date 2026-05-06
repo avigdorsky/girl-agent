@@ -7,6 +7,7 @@
 - JSON-ответы теперь сначала запрашиваются через `json_schema`, с fallback на `json_object` и `text` для разных OpenAI-compatible API. (#33)
 - LM Studio и Ollama больше не требуют реальный API ключ в wizard/headless setup.
 - Добавлена совместимость с OpenAI-compatible прокси, которые возвращают SSE/event-stream даже на обычный chat completions запрос.
+- Добавлена Docker-поддержка для 24/7 запуска на сервере: `Dockerfile`, `docker-compose.yml`, volume для `data` и инструкции в README. (#35)
 
 ## 0.1.7 — MarkdownV2 escaping fix
 
