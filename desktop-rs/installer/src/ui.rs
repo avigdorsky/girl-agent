@@ -246,7 +246,7 @@ fn progress_header(step: Step) -> Element<'static, Msg> {
             LINE
         };
         let label_color = if active { INK } else { MUTED };
-        let dot = container(text("").size(0))
+        let dot: Element<'static, Msg> = container(Space::new(10, 10))
             .width(10)
             .height(10)
             .style(move |_t| container::Style {
@@ -256,10 +256,11 @@ fn progress_header(step: Step) -> Element<'static, Msg> {
                     ..Default::default()
                 },
                 ..Default::default()
-            });
+            })
+            .into();
         let chip = column![
             dot,
-            text(*label)
+            text(label.to_string())
                 .size(11)
                 .color(label_color)
                 .font(onest_medium()),
@@ -269,14 +270,20 @@ fn progress_header(step: Step) -> Element<'static, Msg> {
         blobs.push(chip.into());
         if i + 1 < MAIN_STEPS.len() {
             let bar_color = if i < idx { ACCENT2 } else { LINE };
-            let bar = container(text("").size(0))
+            let bar: Element<'static, Msg> = container(Space::new(Length::Fill, 2))
                 .width(Length::Fill)
                 .height(2)
                 .style(move |_t| container::Style {
                     background: Some(Background::Color(bar_color)),
                     ..Default::default()
-                });
-            blobs.push(container(bar).width(Length::Fill).padding([16, 8]).into());
+                })
+                .into();
+            blobs.push(
+                container(bar)
+                    .width(Length::Fill)
+                    .padding(Padding::from([16, 8]))
+                    .into(),
+            );
         }
     }
     let row = iced::widget::Row::with_children(blobs).align_y(Alignment::Center);
