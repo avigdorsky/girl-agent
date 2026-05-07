@@ -31,8 +31,10 @@ RUN addgroup -S app && adduser -S -G app -h /home/app app
 
 WORKDIR /home/app
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --no-audit --no-fund \
-    && npm cache clean --force
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm ci --omit=dev --no-audit --no-fund \
+    && npm cache clean --force \
+    && apk del .build-deps
 
 COPY --from=build /app/dist ./dist
 
