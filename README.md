@@ -35,7 +35,41 @@
 
 ## Быстрый старт
 
-**Windows (десктоп-приложение, бета):**
+### linux / macos / wsl — одной командой (без node на машине)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TheSashaDev/girl-agent/main/scripts/install.sh | sh
+```
+
+Что произойдёт:
+- определит OS + arch (linux x64/arm64, macos x64/arm64, wsl)
+- если есть docker → поставит docker-обёртку (полная изоляция от системы)
+- иначе → скачает [official Node.js 22 LTS](https://nodejs.org) в `~/.local/share/girl-agent/runtime/` и поставит туда же `@thesashadev/girl-agent` (system node не трогается)
+- shim-скрипт `girl-agent` положит в `~/.local/bin/girl-agent`
+- ничего не пишется в `/usr/local/`, `sudo` не нужен
+
+Дальше:
+```sh
+girl-agent                   # ink-визард для интерактивной первичной настройки
+girl-agent --profile=arina   # запустить готовый профиль
+girl-agent server --help     # серверный режим (без TTY, для systemd / cron / CI)
+```
+
+Опции установщика:
+```sh
+# форсировать docker
+curl -fsSL .../install.sh | sh -s -- --docker
+
+# форсировать локальную ноду
+curl -fsSL .../install.sh | sh -s -- --local
+
+# конкретная версия пакета
+curl -fsSL .../install.sh | sh -s -- --version=0.1.9
+```
+
+Удаление: `rm -rf ~/.local/share/girl-agent ~/.local/bin/girl-agent`
+
+### windows — десктоп-приложение
 
 В папке `desktop-rs/` лежит нативный десктоп-клиент на Rust (iced) и инсталлер-визард: ставит Node-пакет, создаёт профиль, открывает дашборд. Параллельно поднимается локальный веб-UI на `http://127.0.0.1:7777` с тем же дашбордом — открыть из соседнего окна / телефона по локалке. Без WebView, без Electron.
 
@@ -47,35 +81,51 @@ cargo run -p girl-agent-desktop     # открыть дашборд
 
 Готовые бинари будут собираться в CI чуть позже — пока нужно `cargo build --release`.
 
-**Через NPX (рекомендуется):**
+### если уже есть node ≥ 20
 
-```powershell
-npx @thesashadev/girl-agent
-```
-
-Wizard задаст пару вопросов — имя, возраст, Telegram-подключение, LLM-ключ. Всё.
-
-Если профиль уже есть:
-
-```powershell
+```sh
+npx @thesashadev/girl-agent              # ink-визард
 npx @thesashadev/girl-agent --profile=arina
 ```
 
-**Через Docker (рекомендуется для сервера):**
+### docker (для серверов; нулевые зависимости на хосте)
 
-Первый запуск с интерактивом (для настройки через визард):
-```bash
-docker-compose run --rm -it girl-agent
+Интерактивная первичная настройка (ink-визард внутри контейнера):
+```sh
+docker run -it --rm -v girl-agent-data:/data ghcr.io/thesashadev/girl-agent:latest
 ```
-*(пройдите все шаги и после появления дашборда нажмите `Ctrl+C`)*
 
-Последующие (запуск в фоне):
-```bash
-docker-compose up -d
+Headless (для systemd / docker compose / k8s) — сначала готовим конфиг, потом запускаем без TTY:
+```sh
+# 1) шаблон конфига
+docker run --rm ghcr.io/thesashadev/girl-agent:latest server --print-config > bot.json
+# 2) отредактировать bot.json (token, api-key)
+# 3) поднять в фоне
+docker run -d --name girl-agent --restart=unless-stopped \
+  -v girl-agent-data:/data \
+  -v $PWD/bot.json:/config/bot.json:ro \
+  ghcr.io/thesashadev/girl-agent:latest \
+  server --config /config/bot.json --headless
 ```
-*(если профилей несколько, запустите конкретный так: `docker-compose run -d girl-agent node dist/cli.js --profile=arina`)*
 
-*(посмотреть логи: `docker-compose logs -f`)*
+Или совсем без файла, через env-vars (k8s secrets, docker compose):
+```sh
+docker run -d --name girl-agent --restart=unless-stopped \
+  -v girl-agent-data:/data \
+  -e GIRL_AGENT_MODE=bot \
+  -e GIRL_AGENT_TOKEN=... \
+  -e GIRL_AGENT_API_PRESET=claudehub \
+  -e GIRL_AGENT_API_KEY=... \
+  -e GIRL_AGENT_NAME='Аня' -e GIRL_AGENT_AGE=22 \
+  ghcr.io/thesashadev/girl-agent:latest \
+  server --headless
+```
+
+Готовые шаблоны:
+- `girl-agent server --print-config` — bot.json
+- `girl-agent server --print-systemd` — `/etc/systemd/system/girl-agent.service`
+- `girl-agent server --print-docker` — Dockerfile / compose / k8s snippets
+- [`docker-compose.example.yml`](./docker-compose.example.yml) в корне репо
 
 **Из исходников:**
 

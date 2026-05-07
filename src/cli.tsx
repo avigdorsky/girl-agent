@@ -11,6 +11,7 @@ import { makeLLM } from "./llm/index.js";
 import { parseTzFlag, defaultTzForNationality } from "./data/timezones.js";
 import { pickRandomNames } from "./data/names.js";
 import { runHeadlessJsonEvents } from "./headless.js";
+import { runServer } from "./server.js";
 import { communicationProfileLabel, deriveLegacyVibe, findCommunicationPreset, normalizeCommunicationProfile } from "./presets/communication.js";
 import type { ProfileConfig, ClientMode, StageId, LLMProto, Nationality, CommunicationProfile, PrivacyMode } from "./types.js";
 
@@ -23,6 +24,14 @@ usage:
   npx girl-agent --profile=<slug>      # запустить готовый профиль
   npx girl-agent --reset --profile=<slug>
   npx girl-agent <flags>               # пропустить визард с аргументами
+
+server (для систем без TTY: docker / systemd / cron / CI):
+  npx girl-agent server --print-config > bot.json
+  npx girl-agent server --config bot.json --headless
+  npx girl-agent server --print-systemd | --print-docker | --list
+
+установка одной командой (без node на машине):
+  curl -fsSL https://raw.githubusercontent.com/TheSashaDev/girl-agent/main/scripts/install.sh | sh
 
 required flags для headless setup (--name --age --stage --api-preset --mode; --api-key нужен только для провайдеров с авторизацией):
   --profile=<slug>            slug профиля
@@ -59,11 +68,24 @@ async function main() {
     string: [
       "profile", "mode", "token", "api-id", "api-hash", "phone", "api-preset", "base-url", "proto", "model", "api-key",
       "name", "stage", "mcp", "nationality", "tz", "vibe", "persona-notes", "communication-preset",
-      "notifications", "message-style", "initiative", "life-sharing", "privacy"
+      "notifications", "message-style", "initiative", "life-sharing", "privacy", "config"
     ],
-    boolean: ["help", "list", "reset", "new", "json-events", "headless"],
+    boolean: [
+      "help", "list", "reset", "new", "json-events", "headless", "server",
+      "print-config", "print-systemd", "print-docker", "no-start"
+    ],
     alias: { h: "help" }
   });
+
+  // Server subcommand: `npx girl-agent server [...]` or `--server` flag.
+  // Bypasses ink TUI entirely — uses readline + stdout logs. Maximally compatible
+  // with ssh w/o -t, docker w/o -it, systemd, cron, CI.
+  const positional = (argv._ as string[]) ?? [];
+  const isServer = positional[0] === "server" || !!argv.server || !!argv["print-config"] || !!argv["print-systemd"] || !!argv["print-docker"];
+  if (isServer) {
+    await runServer(argv as Record<string, unknown>);
+    return;
+  }
 
   if (argv.help) { process.stdout.write(HELP); return; }
 
@@ -79,13 +101,22 @@ async function main() {
     const stdoutOk = !!stdout.isTTY;
     if (!stdinOk || !stdoutOk) {
       process.stderr.write(
-        "\n[girl-agent] этот терминал не поддерживает интерактивный режим (нет TTY).\n" +
-        `  stdin.isTTY = ${stdinOk}, stdout.isTTY = ${stdoutOk}\n` +
-        "  ink-визард не сможет принять ввод.\n\n" +
-        "что делать:\n" +
-        "  1. запусти команду в обычном терминале (cmd, powershell, bash, zsh);\n" +
-        "  2. или используй headless-режим с флагами: --mode --api-preset --age --stage и т.д.;\n" +
-        "  3. или скачай windows installer .exe — он не требует ink/TUI.\n"
+        "\n[girl-agent] этот терминал не поддерживает интерактивный ink-визард (нет TTY).\n" +
+        `  stdin.isTTY = ${stdinOk}, stdout.isTTY = ${stdoutOk}\n\n` +
+        "что делать (для серверов / docker / ssh без -t / cron / CI):\n\n" +
+        "  1. поставь себе girl-agent одной командой (без node на машине):\n" +
+        "       curl -fsSL https://raw.githubusercontent.com/TheSashaDev/girl-agent/main/scripts/install.sh | sh\n" +
+        "     дальше:    girl-agent          # ink-визард в обычном tty\n\n" +
+        "  2. готовый конфиг + headless (для systemd / cron / CI):\n" +
+        "       girl-agent server --print-config > bot.json\n" +
+        "       # отредактируй bot.json\n" +
+        "       girl-agent server --config bot.json --headless\n\n" +
+        "  3. docker (всё внутри контейнера, ноль зависимостей на хосте):\n" +
+        "       docker run -it --rm -v girl-agent-data:/data \\\n" +
+        "         ghcr.io/thesashadev/girl-agent:latest\n\n" +
+        "  4. systemd:  girl-agent server --print-systemd\n" +
+        "     docker:   girl-agent server --print-docker\n\n" +
+        "  5. на windows быстрее всего — графический инсталлер girl-agent-installer.exe.\n"
       );
       process.exit(2);
     }
