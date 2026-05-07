@@ -14,7 +14,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+RUN apk add --no-cache python3 make g++ \
+    && npm ci --no-audit --no-fund
 COPY tsconfig.json tsup.config.ts ./
 COPY src ./src
 RUN npm run build
