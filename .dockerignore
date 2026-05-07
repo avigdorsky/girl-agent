@@ -1,9 +1,11 @@
 node_modules
-data
 dist
-.env
 .git
-.gitignore
-.vscode
-.idea
+.github
+desktop-rs
 *.log
+.env
+.env.*
+attachments
+plan-*.md
+README.txt
